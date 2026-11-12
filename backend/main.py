@@ -7,6 +7,7 @@ import zipfile
 import os
 import re
 import time
+import uuid
 from typing import Any
 from pathlib import PurePosixPath
 
@@ -74,6 +75,7 @@ EIP1967 = {
 }
 CACHE: dict[str, tuple[float, Any]] = {}
 SCAN_REQUESTS: dict[str, list[float]] = {}
+SCAN_JOBS: dict[str, dict[str, Any]] = {}
 
 
 def enforce_scan_rate_limit(request: Request):
@@ -534,15 +536,7 @@ async def worker_health():
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(503, "Private Slither worker is unavailable") from exc
 
-@app.post("/api/scans/protocol/{slug}")
-async def auto_scan_protocol(slug: str, request: Request, authorization: str | None = Header(default=None)):
-    scan_token = os.getenv("AEGIS_SCAN_TOKEN", "")
-    if not scan_token or authorization != "Bearer " + scan_token:
-        raise HTTPException(401, "Unauthorized")
-    """Automatically discover one contract, retrieve its verified source and run isolated Slither."""
-    enforce_scan_rate_limit(request)
-    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
-        raise HTTPException(400, "Invalid protocol slug")
+async def execute_protocol_scan(slug: str) -> dict[str, Any]:
     candidates_result = await protocol_contract_candidates(slug)
     candidates = candidates_result.get("candidates") or []
     if not candidates:
@@ -555,7 +549,6 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
     verified: dict[str, Any] = {}
     source_provenance = "Sourcify verified contract source"
     try:
-        # Sourcify is queried once for the selected candidate; this is not a bulk contract crawl.
         verified = await get_json(
             f"{SOURCIFY}/v2/contract/{CHAIN_IDS[chain]}/{address}",
             params={"fields": "sources"},
@@ -587,7 +580,6 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
             if isinstance(value, dict) and isinstance(value.get("content"), str):
                 source_files[str(path)] = value["content"]
 
-    # Sourcify may not have this deployment; fall back to a single Blockscout contract lookup.
     if not source_files and chain in BLOCKSCOUT:
         try:
             explorer = await get_json(
@@ -654,7 +646,7 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
             )
         if response.status_code >= 400:
             raise HTTPException(response.status_code, response.text[:2000])
-        result = response.json()
+        analysis = response.json()
     except httpx.HTTPError as exc:
         raise HTTPException(502, "Static-analysis worker unavailable.") from exc
 
@@ -663,14 +655,63 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
         "target": {
             "chain": chain, "chainId": CHAIN_IDS[chain], "address": address,
             "role": candidate.get("role"), "adapterSource": candidate.get("sourceUrl"),
-            "sourceVerification": verified.get("match") or verified.get("runtimeMatch") or "Sourcify source available",
+            "sourceVerification": verified.get("match") or verified.get("runtimeMatch") or source_provenance,
         },
         "sourceFiles": len(safe_sources),
         "sourceProvenance": source_provenance,
-        "analysis": result,
+        "analysis": analysis,
         "classification": "STATIC_ANALYSIS_SIGNAL",
         "disclaimer": "Static-analysis results require manual security review and are not proof of exploitability or current live exploitability.",
     }
+
+
+async def run_protocol_scan_job(job_id: str, slug: str):
+    job = SCAN_JOBS[job_id]
+    job["status"] = "running"
+    job["updatedAt"] = time.time()
+    try:
+        result = await execute_protocol_scan(slug)
+        job.update({"status": "completed", "result": result, "updatedAt": time.time()})
+    except HTTPException as exc:
+        job.update({"status": "failed", "error": str(exc.detail), "statusCode": exc.status_code, "updatedAt": time.time()})
+    except Exception as exc:
+        job.update({"status": "failed", "error": "Unexpected analysis error: " + str(exc), "statusCode": 500, "updatedAt": time.time()})
+
+
+@app.post("/api/scans/protocol/{slug}", status_code=202)
+async def auto_scan_protocol(slug: str, request: Request, authorization: str | None = Header(default=None)):
+    scan_token = os.getenv("AEGIS_SCAN_TOKEN", "")
+    if not scan_token or authorization != "Bearer " + scan_token:
+        raise HTTPException(401, "Unauthorized")
+    enforce_scan_rate_limit(request)
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
+        raise HTTPException(400, "Invalid protocol slug")
+    # Keep the in-memory job registry bounded; completed jobs are available for two hours.
+    now = time.time()
+    for key, value in list(SCAN_JOBS.items()):
+        if now - value.get("createdAt", now) > 7200:
+            SCAN_JOBS.pop(key, None)
+    if len(SCAN_JOBS) >= 100:
+        raise HTTPException(503, "Scan job capacity is full. Retry shortly.")
+    job_id = str(uuid.uuid4())
+    SCAN_JOBS[job_id] = {
+        "jobId": job_id, "protocolSlug": slug, "status": "queued",
+        "createdAt": now, "updatedAt": now,
+    }
+    asyncio.create_task(run_protocol_scan_job(job_id, slug))
+    return {"jobId": job_id, "status": "queued", "pollUrl": f"/api/scans/jobs/{job_id}"}
+
+
+@app.get("/api/scans/jobs/{job_id}")
+async def get_protocol_scan_job(job_id: str, authorization: str | None = Header(default=None)):
+    scan_token = os.getenv("AEGIS_SCAN_TOKEN", "")
+    if not scan_token or authorization != "Bearer " + scan_token:
+        raise HTTPException(401, "Unauthorized")
+    job = SCAN_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Scan job not found or expired.")
+    return job
+
 
 @app.post("/api/scans/slither")
 async def queue_slither_scan(request: Request, file: UploadFile = File(...), authorization: str | None = Header(default=None)):
