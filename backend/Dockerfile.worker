@@ -1,0 +1,11 @@
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+RUN apt-get update && apt-get install -y --no-install-recommends git curl build-essential && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir slither-analyzer==0.11.3 fastapi==0.115.12 "uvicorn[standard]==0.34.2" python-multipart==0.0.20
+RUN pip install --no-cache-dir solc-select && solc-select install 0.8.30 && solc-select use 0.8.30
+WORKDIR /app
+COPY worker.py .
+RUN useradd --create-home --uid 10001 worker && chown -R worker:worker /app
+USER 10001
+EXPOSE 8001
+CMD ["uvicorn","worker:app","--host","0.0.0.0","--port","8001"]
