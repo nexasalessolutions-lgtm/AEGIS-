@@ -15,7 +15,7 @@ export async function POST(request, context) {
     }
     const upstream = await fetch(API + "/api/scans/protocol/" + encodeURIComponent(slug), {
       method: "POST",
-      headers: { Authorization: "Bearer " + token, "X-Aegis-Client-IP": request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown" },
+      headers: { Authorization: "Bearer " + token, "X-Aegis-Client-IP": request.headers.get("x-real-ip") || request.headers.get("x-forwarded-for") || "unknown" },
       cache: "no-store",
       signal: AbortSignal.timeout(210_000),
     });
