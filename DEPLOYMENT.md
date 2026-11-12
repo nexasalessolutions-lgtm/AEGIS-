@@ -1,63 +1,35 @@
-# Production deployment guide
+# Production deployment
 
-## Current hosted components
-- Vercel hosts the Next.js dashboard.
-- Railway hosts the Bun read-only API.
-- The Python FastAPI gateway and Slither worker are implemented in this repository but are not yet attached to the live Railway services.
+## Hosted services
+- Vercel dashboard: https://aegis-defi-intelligence.vercel.app
+- Railway FastAPI gateway: https://aegis-api-v2-production.up.railway.app
+- Railway read-only Bun API (fallback): https://aegis-read-api-production.up.railway.app
+- Slither worker: private Railway service; no public domain.
 
-## Railway repository connection prerequisite
-The Railway GitHub integration currently reports that it cannot access this repository. In Railway, connect/re-authorize the GitHub App and grant access to `nexasalessolutions-lgtm/AEGIS-`. Then create or attach services from branch `main`.
-
-## API service
-- Repository: `nexasalessolutions-lgtm/AEGIS-`
-- Branch: `main`
+## Railway API gateway
+- Service: `aegis-api-v2`
+- Repository: `nexasalessolutions-lgtm/AEGIS-`, branch `main`
 - Root directory: `backend`
-- Builder: Dockerfile
-- Dockerfile path: `Dockerfile`
+- Dockerfile: `Dockerfile`
 - Health check: `/health`
-- Port: `8000`
-- Variables:
-  - `CORS_ORIGINS=https://aegis-defi-intelligence.vercel.app`
-  - `AEGIS_WORKER_URL=http://aegis-slither-worker.railway.internal:8001`
-  - `AEGIS_WORKER_TOKEN=<generate a unique random secret>`
-  - `AEGIS_SCAN_TOKEN=<generate a separate random secret>`
+- Railway container port: `8080`
+- Variables already configured: `CORS_ORIGINS`, `AEGIS_WORKER_URL`, `AEGIS_WORKER_TOKEN`, `AEGIS_SCAN_TOKEN`.
 
-## Slither worker service
-- Same repository and branch.
+## Slither worker
+- Service: `aegis-slither-runner-v2`
 - Root directory: `backend`
-- Dockerfile path: `Dockerfile.worker`
+- Dockerfile: `Dockerfile.worker`
+- Private endpoint: `aegis-slither-worker-v2.railway.internal:8001`
 - Health check: `/health`
-- Port: `8001`
-- Set `AEGIS_WORKER_TOKEN` to the same secret configured on the API service.
-- Keep the worker private; do not create a public domain. Configure its private networking endpoint as `aegis-slither-worker`.
+- `PORT=8001`
+- `AEGIS_WORKER_TOKEN` is configured as a Railway variable and must match the API service's value.
+- Keep this worker private. Do not add a public domain.
 
-The API's private worker URL should then be `http://aegis-slither-worker.railway.internal:8001`.
+## Scan endpoint
+`POST /api/scans/slither` on the API gateway accepts a ZIP archive of Solidity sources and a bearer token matching `AEGIS_SCAN_TOKEN`. The gateway forwards the archive to the private worker. The worker enforces a 20 MB upload cap, 100 MB expanded archive cap, 500-file cap, path traversal/symlink checks and a 180-second timeout. Static analysis does not prove exploitability.
 
-## Frontend
-The Vercel production deployment is already live. The current dashboard does not expose the authenticated Slither upload form yet; do not publish the worker token in browser code. The API gateway's `POST /api/scans/slither` route requires a bearer token and forwards the ZIP to the private worker.
+## Secrets
+The API scan token and internal worker token have been generated and stored in Railway variables. They are not committed to Git or embedded in the browser bundle. To run a scan from the dashboard, copy the API service's `AEGIS_SCAN_TOKEN` value from Railway Variables into the password field. Never paste the internal worker token into the browser.
 
-## Secrets and cost
-Generate secrets in a password manager or platform secret manager; do not commit them. Use public RPCs and free public metadata sources initially. Review Railway/Vercel usage limits before enabling more replicas, databases, or long-running jobs.
-
-## Go-live checklist
-- [ ] Railway GitHub App can read the repository.
-- [ ] API and worker Docker images build from the checked-in Dockerfiles.
-- [ ] API and worker health checks pass.
-- [ ] Worker has no public domain and is reachable only over private networking.
-- [ ] Both API and worker secrets are independently generated and configured.
-- [ ] Upload size, timeout, archive path, and resource limits are verified.
-- [ ] CI passes on the current main commit.
-- [ ] Scanner output is reviewed as static-analysis signals, not confirmed vulnerabilities.
-- [ ] A protocol-specific fork test is pinned to an exact chain block and RPC endpoint.
-- [ ] Findings storage, user auth, tenancy, audit logging, backups, and retention are configured before multi-user production use.
-
-## Railway resources already prepared
-
-The Railway project already contains:
-- `aegis-read-api`: the live Bun read-only API.
-- `aegis-api`: prepared for the Python FastAPI gateway, with `backend/` as its root directory, `Dockerfile`, and `/health` check.
-- `aegis-slither-worker`: prepared for `Dockerfile.worker`, with a private-network endpoint and `/health` check.
-
-The API and worker service variables have already been created, including independent random scan and worker tokens. Their values are intentionally not stored in the repository or exposed in the frontend. Keep the current variables; rotate them only through Railway's variable manager if needed.
-
-The only blocking deployment step is granting Railway's GitHub App access to this repository. The current Railway connection returns `User does not have access to the repo`, so the Python API and Slither worker have not been built or started yet.
+## Remaining production requirements
+Persistent scan queue, durable findings storage, multi-user authentication/tenancy, audit logs, backups, report signing/export, Aderyn/Mythril and protocol-specific Foundry/Anvil reproduction still require implementation and validation. No real transaction signing or broadcasting is supported.
