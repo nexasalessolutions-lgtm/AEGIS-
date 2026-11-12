@@ -24,4 +24,6 @@ jobs:
         with:
           node-version: "22"
       - run: npm install
+      - run: npm audit --json > npm-audit.json || true
+      - run: node -e "const a=require('./npm-audit.json'); console.log(JSON.stringify(a.vulnerabilities || {}, null, 2))"
       - run: npm run build
