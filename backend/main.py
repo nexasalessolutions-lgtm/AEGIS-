@@ -218,6 +218,25 @@ async def protocol_contract_candidates(slug: str):
     }
     async with httpx.AsyncClient(timeout=18, headers=github_headers, follow_redirects=True) as client:
         listing = None
+        direct_found = False
+        raw_root = f"https://raw.githubusercontent.com/DefiLlama/DefiLlama-Adapters/main/projects/{slug}/"
+        try:
+            direct = await client.get(raw_root + "index.js")
+            if direct.status_code == 200:
+                direct_found = True
+                adapter_sources.append((f"projects/{slug}/index.js", direct.text[:600_000]))
+                imports = re.findall(r"(?:require\\s*\\(|from\\s*)['\\"]\\./([^'\\"]+)['\\"]", direct.text)
+                for relative in list(dict.fromkeys(imports))[:25]:
+                    if relative.startswith(".") or ".." in PurePosixPath(relative).parts:
+                        continue
+                    candidates = [relative] if PurePosixPath(relative).suffix else [relative + ".js", relative + "/index.js"]
+                    for candidate_path in candidates:
+                        response = await client.get(raw_root + candidate_path)
+                        if response.status_code == 200:
+                            adapter_sources.append((f"projects/{slug}/{candidate_path}", response.text[:600_000]))
+                            break
+        except httpx.HTTPError as exc:
+            adapter_warnings.append("Direct adapter source lookup failed: " + str(exc))
         paths_to_try = [
             f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}",
             f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}.js",
@@ -235,7 +254,7 @@ async def protocol_contract_candidates(slug: str):
                 break
 
         # If the slug casing differs, resolve it against the public projects directory once.
-        if listing is None and not adapter_warnings:
+        if listing is None and not adapter_warnings and not direct_found:
             try:
                 response = await client.get("https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects")
                 response.raise_for_status()
