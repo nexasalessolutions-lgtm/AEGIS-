@@ -53,10 +53,10 @@ def test_adapter_contract_discovery_extracts_and_verifies_live_addresses(monkeyp
         async def __aenter__(self): return self
         async def __aexit__(self, *args): return None
         async def get(self, url):
+            if url.endswith("/projects/aave/index.js") or "raw.githubusercontent.com" in url:
+                return FakeResponse(text=source)
             if url.endswith("/contents/projects/aave"):
                 return FakeResponse([{"type":"file","path":"projects/aave/index.js","download_url":"https://raw.githubusercontent.com/DefiLlama/DefiLlama-Adapters/main/projects/aave/index.js"}])
-            if "raw.githubusercontent.com" in url:
-                return FakeResponse(text=source)
             raise AssertionError("Unexpected URL " + url)
 
     async def fake_get_json(*args, **kwargs): return protocol
