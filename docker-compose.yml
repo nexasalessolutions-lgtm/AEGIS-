@@ -5,24 +5,30 @@ services:
       dockerfile: Dockerfile
     environment:
       CORS_ORIGINS: http://localhost:3000
+      AEGIS_SCAN_TOKEN: ${AEGIS_SCAN_TOKEN:?Set AEGIS_SCAN_TOKEN}
+      AEGIS_WORKER_TOKEN: ${AEGIS_WORKER_TOKEN:?Set AEGIS_WORKER_TOKEN}
+      AEGIS_WORKER_URL: http://slither-worker:8001
     ports:
       - "8000:8000"
+    networks: [egress, internal]
   slither-worker:
     build:
       context: ./backend
       dockerfile: Dockerfile.worker
     environment:
       AEGIS_WORKER_TOKEN: ${AEGIS_WORKER_TOKEN:?Set AEGIS_WORKER_TOKEN}
-    ports:
-      - "127.0.0.1:8001:8001"
+    expose:
+      - "8001"
     read_only: true
     tmpfs:
       - /tmp:size=128m,noexec,nosuid,nodev
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     pids_limit: 128
     mem_limit: 2g
     cpus: 2
-    network_mode: none
+    networks: [internal]
+networks:
+  egress: {}
+  internal:
+    internal: true
