@@ -225,7 +225,7 @@ async def protocol_contract_candidates(slug: str):
             if direct.status_code == 200:
                 direct_found = True
                 adapter_sources.append((f"projects/{slug}/index.js", direct.text[:600_000]))
-                imports = re.findall(r"(?:require\\s*\\(|from\\s*)['\\"]\\./([^'\\"]+)['\\"]", direct.text)
+                imports = re.findall(r"""(?:require\s*\(|from\s*)['"]\./([^'"]+)['"]""", direct.text)
                 for relative in list(dict.fromkeys(imports))[:25]:
                     if relative.startswith(".") or ".." in PurePosixPath(relative).parts:
                         continue
