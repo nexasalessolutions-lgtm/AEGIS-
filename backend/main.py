@@ -237,21 +237,22 @@ async def protocol_contract_candidates(slug: str):
                             break
         except httpx.HTTPError as exc:
             adapter_warnings.append("Direct adapter source lookup failed: " + str(exc))
-        paths_to_try = [
-            f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}",
-            f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}.js",
-        ]
-        for url in paths_to_try:
-            try:
-                response = await client.get(url)
-                if response.status_code == 404:
-                    continue
-                response.raise_for_status()
-                listing = response.json()
-                break
-            except httpx.HTTPError as exc:
-                adapter_warnings.append("DeFiLlama adapter repository lookup failed: " + str(exc))
-                break
+        if not direct_found:
+                    paths_to_try = [
+                f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}",
+                f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}.js",
+            ]
+            for url in paths_to_try:
+                try:
+                    response = await client.get(url)
+                    if response.status_code == 404:
+                        continue
+                    response.raise_for_status()
+                    listing = response.json()
+                    break
+                except httpx.HTTPError as exc:
+                    adapter_warnings.append("DeFiLlama adapter repository lookup failed: " + str(exc))
+                    break
 
         # If the slug casing differs, resolve it against the public projects directory once.
         if listing is None and not adapter_warnings and not direct_found:
