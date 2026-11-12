@@ -430,7 +430,52 @@ async def protocol_contract_candidates(slug: str):
 
     verified_groups = await asyncio.gather(*(verify_candidate(item) for item in ranked))
     verified = [item for group in verified_groups for item in group]
-    verified.sort(key=lambda x: (0 if x["confidence"] == "medium" else 1, x["chain"], x["address"].lower()))
+
+    # Resolve standard EIP-1967 proxies for the most relevant code-verified candidates.
+    async def resolve_proxy(candidate: dict[str, Any]):
+        async with semaphore:
+            try:
+                word = await rpc_call(candidate["chain"], "eth_getStorageAt", [candidate["address"], EIP1967["implementation"], "latest"])
+                implementation = address_from_word(word)
+                proxy_kind = "eip1967_implementation"
+                if not implementation:
+                    beacon_word = await rpc_call(candidate["chain"], "eth_getStorageAt", [candidate["address"], EIP1967["beacon"], "latest"])
+                    beacon = address_from_word(beacon_word)
+                    if beacon:
+                        implementation_word = await rpc_call(candidate["chain"], "eth_call", [{"to": beacon, "data": "0x5c60da1b"}, "latest"])
+                        implementation = address_from_word(implementation_word)
+                        proxy_kind = "eip1967_beacon"
+                if not implementation or implementation.lower() == candidate["address"].lower():
+                    return None
+                implementation_code = await rpc_call(candidate["chain"], "eth_getCode", [implementation, "latest"])
+                if not implementation_code or implementation_code == "0x":
+                    return None
+                return {
+                    **candidate,
+                    "address": implementation,
+                    "role": "proxy_implementation",
+                    "confidence": "medium",
+                    "hasCode": True,
+                    "bytecodeBytes": max(0, (len(implementation_code) - 2) // 2),
+                    "proxyAddress": candidate["address"],
+                    "proxyKind": proxy_kind,
+                    "source": "EIP-1967 on-chain storage",
+                    "sourcePath": "EIP-1967 storage slot",
+                    "sourceLine": 0,
+                    "attribution": "proxy_implementation_slot_verified",
+                }
+            except Exception:
+                return None
+
+    proxy_candidates = [x for x in verified if x.get("confidence") == "medium"][:20]
+    proxy_results = await asyncio.gather(*(resolve_proxy(item) for item in proxy_candidates))
+    verified.extend(item for item in proxy_results if item)
+    verified.sort(key=lambda x: (
+        0 if x.get("role") == "proxy_implementation" else 1,
+        0 if x["confidence"] == "medium" else 1,
+        x["chain"],
+        x["address"].lower(),
+    ))
     result = {
         "protocolSlug": slug,
         "protocolName": protocol.get("name"),
