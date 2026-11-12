@@ -502,7 +502,10 @@ async def worker_health():
         raise HTTPException(503, "Private Slither worker is unavailable") from exc
 
 @app.post("/api/scans/protocol/{slug}")
-async def auto_scan_protocol(slug: str, request: Request):
+async def auto_scan_protocol(slug: str, request: Request, authorization: str | None = Header(default=None)):
+    scan_token = os.getenv("AEGIS_SCAN_TOKEN", "")
+    if not scan_token or authorization != "Bearer " + scan_token:
+        raise HTTPException(401, "Unauthorized")
     """Automatically discover one contract, retrieve its verified source and run isolated Slither."""
     enforce_scan_rate_limit(request)
     if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
