@@ -24,6 +24,18 @@ app.add_middleware(
 
 LLAMA = "https://api.llama.fi"
 SOURCIFY = "https://sourcify.dev/server"
+BLOCKSCOUT = {
+    "ethereum": "https://eth.blockscout.com",
+    "arbitrum": "https://arbitrum.blockscout.com",
+    "optimism": "https://optimism.blockscout.com",
+    "base": "https://base.blockscout.com",
+    "polygon": "https://polygon.blockscout.com",
+    "gnosis": "https://gnosis.blockscout.com",
+    "celo": "https://celo.blockscout.com",
+    "linea": "https://linea.blockscout.com",
+    "scroll": "https://scroll.blockscout.com",
+    "zksync": "https://zksync.blockscout.com",
+}
 CHAIN_IDS = {
     "ethereum": 1, "optimism": 10, "bsc": 56, "gnosis": 100, "polygon": 137,
     "fantom": 250, "zksync": 324, "celo": 42220, "arbitrum": 42161,
@@ -539,6 +551,8 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
     address = candidate.get("address")
     if not chain or chain not in CHAIN_IDS:
         raise HTTPException(422, "The best candidate has no supported chain attribution.")
+    verified: dict[str, Any] = {}
+    source_provenance = "Sourcify verified contract source"
     try:
         # Sourcify is queried once for the selected candidate; this is not a bulk contract crawl.
         verified = await get_json(
@@ -547,8 +561,8 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
             cache_key=f"sourcify-sources:{chain}:{address.lower()}",
             ttl=3600,
         )
-    except httpx.HTTPError as exc:
-        raise HTTPException(404, "No Sourcify verified source is available for the selected contract. Choose another discovered contract or provide a source bundle.") from exc
+    except httpx.HTTPError:
+        verified = {}
 
     source_files: dict[str, str] = {}
     sources = verified.get("sources")
@@ -566,12 +580,45 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
                 if isinstance(value, str):
                     source_files[str(path)] = value
 
-    # Some API responses expose the standard JSON input instead of a top-level sources map.
     std_json = verified.get("stdJsonInput")
     if not source_files and isinstance(std_json, dict):
         for path, value in (std_json.get("sources") or {}).items():
             if isinstance(value, dict) and isinstance(value.get("content"), str):
                 source_files[str(path)] = value["content"]
+
+    # Sourcify may not have this deployment; fall back to a single Blockscout contract lookup.
+    if not source_files and chain in BLOCKSCOUT:
+        try:
+            explorer = await get_json(
+                f"{BLOCKSCOUT[chain]}/api/v2/smart-contracts/{address}",
+                cache_key=f"blockscout-source:{chain}:{address.lower()}",
+                ttl=3600,
+            )
+            raw_source = explorer.get("source_code") or explorer.get("sourceCode") or ""
+            if isinstance(raw_source, str) and raw_source.strip():
+                try:
+                    parsed_source = json.loads(raw_source)
+                except Exception:
+                    parsed_source = None
+                if isinstance(parsed_source, dict) and isinstance(parsed_source.get("sources"), dict):
+                    for path, value in parsed_source["sources"].items():
+                        if isinstance(value, dict) and isinstance(value.get("content"), str):
+                            source_files[str(path)] = value["content"]
+                else:
+                    source_files[explorer.get("file_path") or "Contract.sol"] = raw_source
+            extras = explorer.get("additional_sources") or explorer.get("additionalSources") or []
+            if isinstance(extras, list):
+                for item in extras:
+                    if isinstance(item, dict):
+                        path = item.get("file_path") or item.get("filePath") or f"additional-{len(source_files)}.sol"
+                        value = item.get("source_code") or item.get("sourceCode") or item.get("source")
+                        if isinstance(value, str):
+                            source_files[str(path)] = value
+            if source_files:
+                source_provenance = "Blockscout verified contract source"
+                verified = {"match": "blockscout_verified", **verified}
+        except httpx.HTTPError:
+            pass
 
     safe_sources: list[tuple[str, str]] = []
     for path, source in source_files.items():
@@ -583,7 +630,7 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
         if len(safe_sources) >= 200:
             break
     if not safe_sources:
-        raise HTTPException(422, "Sourcify returned verification metadata but no usable Solidity source files.")
+        raise HTTPException(422, "No verified Solidity source was available from Sourcify or the supported Blockscout explorer for the selected contract.")
 
     archive_buffer = io.BytesIO()
     with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -618,7 +665,7 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
             "sourceVerification": verified.get("match") or verified.get("runtimeMatch") or "Sourcify source available",
         },
         "sourceFiles": len(safe_sources),
-        "sourceProvenance": "Sourcify verified contract source",
+        "sourceProvenance": source_provenance,
         "analysis": result,
         "classification": "STATIC_ANALYSIS_SIGNAL",
         "disclaimer": "Static-analysis results require manual security review and are not proof of exploitability or current live exploitability.",
