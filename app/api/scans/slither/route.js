@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const API = process.env.AEGIS_API_URL || "https://aegis-api-v5-production.up.railway.app";
+const API = process.env.AEGIS_API_URL || "https://aegis-api-v6-production.up.railway.app";
 const MAX_BYTES = 4 * 1024 * 1024;
 
 export async function POST(request) {
