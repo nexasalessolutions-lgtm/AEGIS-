@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 const API = process.env.AEGIS_API_URL || "https://aegis-api-v4-production.up.railway.app";
 
-export async function POST(_request, context) {
+export async function POST(request, context) {
   const token = process.env.AEGIS_SCAN_TOKEN;
   if (!token) {
     return Response.json({ detail: "Secure scan gateway is not configured." }, { status: 503 });
@@ -15,7 +15,7 @@ export async function POST(_request, context) {
     }
     const upstream = await fetch(API + "/api/scans/protocol/" + encodeURIComponent(slug), {
       method: "POST",
-      headers: { Authorization: "Bearer " + token },
+      headers: { Authorization: "Bearer " + token, "X-Aegis-Client-IP": request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown" },
       cache: "no-store",
       signal: AbortSignal.timeout(210_000),
     });
