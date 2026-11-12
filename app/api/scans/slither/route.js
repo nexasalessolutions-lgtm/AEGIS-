@@ -25,7 +25,7 @@ export async function POST(request) {
     outgoing.set("file", file, file.name);
     const upstream = await fetch(API + "/api/scans/slither", {
       method: "POST",
-      headers: { Authorization: "Bearer " + token },
+      headers: { Authorization: "Bearer " + token, "X-Aegis-Client-IP": request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown" },
       body: outgoing,
       cache: "no-store",
       signal: AbortSignal.timeout(210_000),
