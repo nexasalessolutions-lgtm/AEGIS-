@@ -4,9 +4,9 @@ Read-only DeFi protocol intelligence and smart-contract research workbench.
 
 ## Live app
 - Dashboard: https://aegis-defi-intelligence.vercel.app
-- API: https://aegis-api-v3-production.up.railway.app
-- Health: https://aegis-api-v3-production.up.railway.app/health
-- Worker health (through API): https://aegis-api-v3-production.up.railway.app/api/worker/health
+- API: https://aegis-api-v4-production.up.railway.app
+- Health: https://aegis-api-v4-production.up.railway.app/health
+- Worker health (through API): https://aegis-api-v4-production.up.railway.app/api/worker/health
 
 ## Implemented
 - DeFiLlama protocol registry, TVL metadata, chain/category/search filters and protocol detail.
