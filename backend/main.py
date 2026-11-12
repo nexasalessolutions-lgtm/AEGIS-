@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import io
+import zipfile
 import os
 import re
 import time
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="AEGIS Read-only Intelligence API", version="0.2.0")
@@ -57,6 +59,18 @@ EIP1967 = {
     "beacon": "0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50",
 }
 CACHE: dict[str, tuple[float, Any]] = {}
+SCAN_REQUESTS: dict[str, list[float]] = {}
+
+
+def enforce_scan_rate_limit(request: Request):
+    forwarded = request.headers.get('x-forwarded-for', '')
+    ip = forwarded.split(',')[0].strip() if forwarded else (request.client.host if request.client else 'unknown')
+    now = time.monotonic()
+    recent = [stamp for stamp in SCAN_REQUESTS.get(ip, []) if now - stamp < 600]
+    if len(recent) >= 3:
+        raise HTTPException(429, 'Scan limit reached for this IP. Try again in 10 minutes.')
+    recent.append(now)
+    SCAN_REQUESTS[ip] = recent
 
 async def get_json(url: str, *, params: dict[str, str] | None = None, cache_key: str | None = None, ttl: int = 0) -> Any:
     now = time.monotonic()
@@ -486,8 +500,109 @@ async def worker_health():
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(503, "Private Slither worker is unavailable") from exc
 
+@app.post("/api/scans/protocol/{slug}")
+async def auto_scan_protocol(slug: str, request: Request):
+    """Automatically discover one contract, retrieve its verified source and run isolated Slither."""
+    enforce_scan_rate_limit(request)
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
+        raise HTTPException(400, "Invalid protocol slug")
+    candidates_result = await protocol_contract_candidates(slug)
+    candidates = candidates_result.get("candidates") or []
+    if not candidates:
+        raise HTTPException(404, "No on-chain-verified adapter contract candidates were discovered for this protocol.")
+    candidate = next((x for x in candidates if x.get("confidence") == "medium"), candidates[0])
+    chain = candidate.get("chain")
+    address = candidate.get("address")
+    if not chain or chain not in CHAIN_IDS:
+        raise HTTPException(422, "The best candidate has no supported chain attribution.")
+    try:
+        # Sourcify is queried once for the selected candidate; this is not a bulk contract crawl.
+        verified = await get_json(
+            f"{SOURCIFY}/v2/contract/{CHAIN_IDS[chain]}/{address}",
+            params={"fields": "sources"},
+            cache_key=f"sourcify-sources:{chain}:{address.lower()}",
+            ttl=3600,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(404, "No Sourcify verified source is available for the selected contract. Choose another discovered contract or provide a source bundle.") from exc
+
+    source_files: dict[str, str] = {}
+    sources = verified.get("sources")
+    if isinstance(sources, dict):
+        for path, value in sources.items():
+            if isinstance(value, str):
+                source_files[str(path)] = value
+            elif isinstance(value, dict) and isinstance(value.get("content"), str):
+                source_files[str(path)] = value["content"]
+    elif isinstance(sources, list):
+        for item in sources:
+            if isinstance(item, dict):
+                path = item.get("path") or item.get("name") or f"source-{len(source_files)}.sol"
+                value = item.get("content") or item.get("source")
+                if isinstance(value, str):
+                    source_files[str(path)] = value
+
+    # Some API responses expose the standard JSON input instead of a top-level sources map.
+    std_json = verified.get("stdJsonInput")
+    if not source_files and isinstance(std_json, dict):
+        for path, value in (std_json.get("sources") or {}).items():
+            if isinstance(value, dict) and isinstance(value.get("content"), str):
+                source_files[str(path)] = value["content"]
+
+    safe_sources: list[tuple[str, str]] = []
+    for path, source in source_files.items():
+        normalized = PurePosixPath(path.replace("\\", "/"))
+        if normalized.is_absolute() or ".." in normalized.parts:
+            continue
+        if normalized.suffix.lower() == ".sol" and len(source.encode("utf-8")) <= 2_000_000:
+            safe_sources.append((str(normalized), source))
+        if len(safe_sources) >= 200:
+            break
+    if not safe_sources:
+        raise HTTPException(422, "Sourcify returned verification metadata but no usable Solidity source files.")
+
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path, source in safe_sources:
+            archive.writestr(path, source)
+    archive_bytes = archive_buffer.getvalue()
+    if len(archive_bytes) > 4 * 1024 * 1024:
+        raise HTTPException(413, "Automatically collected source bundle exceeds 4 MB.")
+
+    worker_url = os.getenv("AEGIS_WORKER_URL", "")
+    worker_token = os.getenv("AEGIS_WORKER_TOKEN", "")
+    if not worker_url or not worker_token:
+        raise HTTPException(503, "Static-analysis worker is not configured.")
+    try:
+        async with httpx.AsyncClient(timeout=200) as client:
+            response = await client.post(
+                worker_url.rstrip("/") + "/scan/slither",
+                files={"file": (f"{slug}-{chain}-{address}.zip", archive_bytes, "application/zip")},
+                headers={"Authorization": "Bearer " + worker_token},
+            )
+        if response.status_code >= 400:
+            raise HTTPException(response.status_code, response.text[:2000])
+        result = response.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Static-analysis worker unavailable.") from exc
+
+    return {
+        "protocolSlug": slug,
+        "target": {
+            "chain": chain, "chainId": CHAIN_IDS[chain], "address": address,
+            "role": candidate.get("role"), "adapterSource": candidate.get("sourceUrl"),
+            "sourceVerification": verified.get("match") or verified.get("runtimeMatch") or "Sourcify source available",
+        },
+        "sourceFiles": len(safe_sources),
+        "sourceProvenance": "Sourcify verified contract source",
+        "analysis": result,
+        "classification": "STATIC_ANALYSIS_SIGNAL",
+        "disclaimer": "Static-analysis results require manual security review and are not proof of exploitability or current live exploitability.",
+    }
+
 @app.post("/api/scans/slither")
-async def queue_slither_scan(file: UploadFile = File(...), authorization: str | None = Header(default=None)):
+async def queue_slither_scan(request: Request, file: UploadFile = File(...), authorization: str | None = Header(default=None)):
+    enforce_scan_rate_limit(request)
     token = os.getenv("AEGIS_SCAN_TOKEN", "")
     if not token:
         raise HTTPException(503, "Static-analysis gateway is not configured")
