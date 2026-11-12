@@ -325,7 +325,7 @@ async def protocol_contract_candidates(slug: str):
     chain_pattern = re.compile(r"\b(ethereum|arbitrum|optimism|polygon|base|bsc|avalanche|avax|gnosis|xdai|celo|fantom|sonic|linea|scroll|zksync|mantle|blast|mode|opbnb|unichain|berachain|zora)\b", re.I)
     collected: dict[str, dict[str, Any]] = {}
 
-    def add_candidate(address: str, source_path: str, source_line: int, context: str, source_url: str):
+    def add_candidate(address: str, source_path: str, source_line: int, context: str, source_url: str, line_text: str = ""):
         if address.lower() == "0x" + "0" * 40:
             return
         chain = None
@@ -372,7 +372,7 @@ async def protocol_contract_candidates(slug: str):
                 continue
             context = "\n".join(lines[max(0, index - 2):min(len(lines), index + 3)])
             for match in matches:
-                add_candidate(match.group(0), path, index + 1, context, raw_url)
+                add_candidate(match.group(0), path, index + 1, context, raw_url, line)
 
     # Supplement adapter code with any explicit addresses in the protocol metadata itself.
     visited = 0
@@ -397,7 +397,7 @@ async def protocol_contract_candidates(slug: str):
     ranked = sorted(
         collected.values(),
         key=lambda x: (0 if x["confidence"] == "medium" else 1, x["sourcePath"], x["sourceLine"]),
-    )[:50]
+    )[:40]
 
     # Verify candidates against chain bytecode. Unknown-chain candidates are checked against
     # the protocol's advertised EVM chains, with bounded concurrency and a hard request cap.
@@ -405,14 +405,14 @@ async def protocol_contract_candidates(slug: str):
     checks = 0
     async def verify_candidate(candidate: dict[str, Any]):
         nonlocal checks
-        target_chains = [candidate["chain"]] if candidate.get("chain") else supported[:4]
+        target_chains = [candidate["chain"]] if candidate.get("chain") else supported[:3]
         if not target_chains:
             return []
         found = []
         for chain_key in target_chains:
             async with semaphore:
                 checks += 1
-                if checks > 200:
+                if checks > 100:
                     return found
                 try:
                     code = await rpc_call(chain_key, "eth_getCode", [candidate["address"], "latest"])
