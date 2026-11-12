@@ -81,3 +81,10 @@ def test_adapter_contract_discovery_extracts_and_verifies_live_addresses(monkeyp
     assert result["candidateCount"] >= 2
     assert all(item["hasCode"] for item in result["candidates"])
     assert {item["chain"] for item in result["candidates"]} >= {"ethereum", "polygon"}
+
+
+def test_auto_scan_requires_server_side_token(monkeypatch):
+    import main
+    monkeypatch.setattr(main.os, "environ", {})
+    response = client.post("/api/scans/protocol/aave")
+    assert response.status_code == 401
