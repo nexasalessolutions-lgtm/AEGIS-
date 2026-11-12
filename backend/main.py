@@ -80,7 +80,7 @@ SCAN_TASKS: set[asyncio.Task] = set()
 
 
 def enforce_scan_rate_limit(request: Request):
-    forwarded = request.headers.get('x-forwarded-for', '')
+    forwarded = request.headers.get('x-aegis-client-ip') or request.headers.get('x-forwarded-for', '')
     ip = forwarded.split(',')[0].strip() if forwarded else (request.client.host if request.client else 'unknown')
     now = time.monotonic()
     recent = [stamp for stamp in SCAN_REQUESTS.get(ip, []) if now - stamp < 600]
