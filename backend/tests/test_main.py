@@ -88,3 +88,8 @@ def test_auto_scan_requires_server_side_token(monkeypatch):
     monkeypatch.setattr(main.os, "environ", {})
     response = client.post("/api/scans/protocol/aave")
     assert response.status_code == 401
+
+
+def test_scan_job_status_requires_server_side_token():
+    response = client.get("/api/scans/jobs/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 401
