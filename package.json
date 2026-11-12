@@ -1,1 +1,18 @@
-{"name":"aegis-defi-intelligence","version":"0.2.0","private":true,"scripts":{"dev":"next dev","build":"next build","start":"next start"},"dependencies":{"next":"15.5.28","react":"19.1.2","react-dom":"19.1.2"}}
+{
+  "name": "aegis-defi-intelligence",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "15.5.28",
+    "react": "19.1.2",
+    "react-dom": "19.1.2"
+  },
+  "overrides": {
+    "postcss": "8.5.23"
+  }
+}
