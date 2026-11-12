@@ -16,6 +16,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r backend/requirements-dev.txt
       - run: cd backend && pytest -q
+      - run: pip install pip-audit && pip-audit -r backend/requirements.txt
   frontend-build:
     runs-on: ubuntu-latest
     steps:
@@ -26,6 +27,7 @@ jobs:
       - run: npm install
       - run: npm audit --json > npm-audit.json || true
       - run: node -e "const a=require('./npm-audit.json'); console.log(JSON.stringify(a.vulnerabilities || {}, null, 2))"
+      - run: npm audit --audit-level=high
       - run: npm run build
 
   container-builds:
