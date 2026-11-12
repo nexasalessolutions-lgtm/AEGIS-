@@ -63,10 +63,11 @@ def test_adapter_contract_discovery_extracts_and_verifies_live_addresses(monkeyp
     async def fake_rpc(chain, method, params):
         if method == "eth_getCode":
             address = params[0].lower()
+            if address == "0x3333333333333333333333333333333333333333":
+                return "0x60006000" if chain == "polygon" else "0x"
             if address in {
                 "0x1111111111111111111111111111111111111111",
                 "0x2222222222222222222222222222222222222222",
-                "0x3333333333333333333333333333333333333333",
                 "0x4444444444444444444444444444444444444444",
             }:
                 return "0x60006000"
