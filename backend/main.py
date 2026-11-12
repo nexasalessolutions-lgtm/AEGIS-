@@ -238,7 +238,7 @@ async def protocol_contract_candidates(slug: str):
         except httpx.HTTPError as exc:
             adapter_warnings.append("Direct adapter source lookup failed: " + str(exc))
         if not direct_found:
-                    paths_to_try = [
+            paths_to_try = [
                 f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}",
                 f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}.js",
             ]
