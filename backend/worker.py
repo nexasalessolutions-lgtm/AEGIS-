@@ -9,14 +9,21 @@ SCAN_LOCK = asyncio.Lock()
 
 @app.get("/health")
 async def health():
-    slither = subprocess.run(["slither", "--version"], capture_output=True, text=True, timeout=8)
-    solc = subprocess.run(["solc", "--version"], capture_output=True, text=True, timeout=8)
+    def version(command):
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=8, check=False)
+            return result.stdout.strip() or result.stderr.strip() or ("exit " + str(result.returncode))
+        except Exception as exc:
+            return "unavailable: " + str(exc)
+    slither_version = await asyncio.to_thread(version, ["slither", "--version"])
+    solc_version = await asyncio.to_thread(version, ["solc", "--version"])
+    healthy = not slither_version.startswith("unavailable:") and not solc_version.startswith("unavailable:")
     return {
-        "status": "ok" if slither.returncode == 0 and solc.returncode == 0 else "degraded",
+        "status": "ok" if healthy else "degraded",
         "worker": "slither",
         "mode": "static-analysis-only",
-        "slitherVersion": slither.stdout.strip() or slither.stderr.strip(),
-        "solcVersion": solc.stdout.strip() or solc.stderr.strip(),
+        "slitherVersion": slither_version,
+        "solcVersion": solc_version,
     }
 
 def extract_sources(data: bytes, destination: Path) -> int:
