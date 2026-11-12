@@ -320,8 +320,8 @@ async def protocol_contract_candidates(slug: str):
                 continue
 
     address_pattern = re.compile(r"0x[a-fA-F0-9]{40}")
-    role_pattern = re.compile(r"\b(factory|router|pool|vault|comptroller|controller|registry|proxy|manager|lendingPool|market|staking|gauge|bridge|oracle|treasury|owner|multisig|addressProvider|implementation|beacon|diamond|escrow|masterChef|chef|distributor|governor|timelock|strategy|wrapper)\b", re.I)
-    token_pattern = re.compile(r"\b(token|asset|reward|underlying|symbol|blacklist|stablecoin|coreAssets|weth|usdc|usdt|dai)\b", re.I)
+    role_pattern = re.compile(r"(factory|router|pool|vault|comptroller|controller|registry|proxy|manager|lendingPool|market|staking|gauge|bridge|oracle|treasury|owner|multisig|addressProvider|implementation|beacon|diamond|escrow|masterChef|chef|distributor|governor|timelock|strategy|wrapper)", re.I)
+    token_pattern = re.compile(r"(token|asset|reward|underlying|symbol|blacklist|stablecoin|coreAssets|weth|usdc|usdt|dai)", re.I)
     chain_pattern = re.compile(r"\b(ethereum|arbitrum|optimism|polygon|base|bsc|avalanche|avax|gnosis|xdai|celo|fantom|sonic|linea|scroll|zksync|mantle|blast|mode|opbnb|unichain|berachain|zora)\b", re.I)
     collected: dict[str, dict[str, Any]] = {}
 
