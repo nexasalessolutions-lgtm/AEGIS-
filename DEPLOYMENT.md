@@ -2,11 +2,11 @@
 
 ## Hosted services
 - Vercel dashboard: https://aegis-defi-intelligence.vercel.app
-- Railway FastAPI gateway: https://aegis-api-v5-production.up.railway.app
+- Railway FastAPI gateway: https://aegis-api-v6-production.up.railway.app
 - Private Slither worker: Railway service `aegis-slither-runner-v5`; no public domain.
 
 ## Railway API gateway
-- Service: `aegis-api-v5`
+- Service: `aegis-api-v6`
 - Repository: `nexasalessolutions-lgtm/AEGIS-`, branch `main`
 - Root directory: `backend`
 - Dockerfile: `Dockerfile`
