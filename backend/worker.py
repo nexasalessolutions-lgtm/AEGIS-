@@ -5,6 +5,7 @@ from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 app = FastAPI(title="AEGIS Isolated Static Analysis Worker", version="0.1.0")
 TOKEN = os.getenv("AEGIS_WORKER_TOKEN", "")
 MAX_ARCHIVE, MAX_EXPANDED, MAX_FILES, TIMEOUT = 20*1024*1024, 100*1024*1024, 500, 180
+SCAN_LOCK = asyncio.Lock()
 
 @app.get("/health")
 async def health():
@@ -45,17 +46,19 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
     if not file.filename or not file.filename.lower().endswith(".zip"): raise HTTPException(400,"Upload a ZIP archive")
     data=await file.read(MAX_ARCHIVE+1)
     if len(data)>MAX_ARCHIVE: raise HTTPException(413,"Archive exceeds 20 MB limit")
-    with tempfile.TemporaryDirectory(prefix="aegis-slither-") as tmp:
-        project=Path(tmp)/"project"; project.mkdir()
-        extracted=extract_sources(data,project)
-        try:
-            proc=await asyncio.to_thread(subprocess.run,["slither",".","--json","-"],cwd=project,capture_output=True,text=True,timeout=TIMEOUT,check=False,env={"PATH":os.environ.get("PATH","/usr/local/bin:/usr/bin:/bin"),"HOME":os.environ.get("HOME", "/home/worker"), "TMPDIR":"/tmp"})
-        except subprocess.TimeoutExpired as exc: raise HTTPException(408,"Static analysis exceeded 180 seconds") from exc
-        payload=None
-        for candidate in (proc.stdout,proc.stderr):
-            try: payload=json.loads(candidate); break
-            except Exception: pass
-        if payload is None: raise HTTPException(422,"Slither returned no parseable JSON; check compiler compatibility")
-        detectors=payload.get("results",{}).get("detectors",[])
-        findings=[{"id":f"SLITHER-{i+1:04d}","check":x.get("check"),"impact":x.get("impact"),"confidence":x.get("confidence"),"description":x.get("description"),"firstElement":(x.get("elements") or [{}])[0].get("source_mapping",{}).get("filename_relative")} for i,x in enumerate(detectors)]
-        return {"engine":"Slither","status":"completed" if proc.returncode in (0,1) else "completed_with_errors","exitCode":proc.returncode,"sourceFiles":len(list(project.rglob("*.sol"))),"archiveEntriesExtracted":extracted,"findingCount":len(findings),"findings":findings,"stderr":proc.stderr[-8000:],"classification":"STATIC_ANALYSIS_SIGNAL","disclaimer":"Static-analysis output is a review signal, not a confirmed vulnerability or proof of live exploitability."}
+    async with SCAN_LOCK:
+        with tempfile.TemporaryDirectory(prefix="aegis-slither-") as tmp:
+            project=Path(tmp)/"project"; project.mkdir()
+            extracted=extract_sources(data,project)
+            try:
+                proc=await asyncio.to_thread(subprocess.run,["slither",".","--json","-"],cwd=project,capture_output=True,text=True,timeout=TIMEOUT,check=False,env={"PATH":os.environ.get("PATH","/usr/local/bin:/usr/bin:/bin"),"HOME":os.environ.get("HOME", "/home/worker"), "TMPDIR":"/tmp"})
+            except subprocess.TimeoutExpired as exc: raise HTTPException(408,"Static analysis exceeded 180 seconds") from exc
+            payload=None
+            for candidate in (proc.stdout,proc.stderr):
+                try: payload=json.loads(candidate); break
+                except Exception: pass
+            if payload is None: raise HTTPException(422,"Slither returned no parseable JSON; check compiler compatibility")
+            detectors=payload.get("results",{}).get("detectors",[])
+            findings=[{"id":f"SLITHER-{i+1:04d}","check":x.get("check"),"impact":x.get("impact"),"confidence":x.get("confidence"),"description":x.get("description"),"firstElement":(x.get("elements") or [{}])[0].get("source_mapping",{}).get("filename_relative")} for i,x in enumerate(detectors)]
+            return {"engine":"Slither","status":"completed" if proc.returncode in (0,1) else "completed_with_errors","exitCode":proc.returncode,"sourceFiles":len(list(project.rglob("*.sol"))),"archiveEntriesExtracted":extracted,"findingCount":len(findings),"findings":findings,"stderr":proc.stderr[-8000:],"classification":"STATIC_ANALYSIS_SIGNAL","disclaimer":"Static-analysis output is a review signal, not a confirmed vulnerability or proof of live exploitability."}
+    
