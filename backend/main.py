@@ -76,6 +76,7 @@ EIP1967 = {
 CACHE: dict[str, tuple[float, Any]] = {}
 SCAN_REQUESTS: dict[str, list[float]] = {}
 SCAN_JOBS: dict[str, dict[str, Any]] = {}
+SCAN_TASKS: set[asyncio.Task] = set()
 
 
 def enforce_scan_rate_limit(request: Request):
@@ -693,12 +694,16 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
             SCAN_JOBS.pop(key, None)
     if len(SCAN_JOBS) >= 100:
         raise HTTPException(503, "Scan job capacity is full. Retry shortly.")
+    if len(SCAN_TASKS) >= 2:
+        raise HTTPException(429, "The static-analysis worker is busy. Retry in a moment.")
     job_id = str(uuid.uuid4())
     SCAN_JOBS[job_id] = {
         "jobId": job_id, "protocolSlug": slug, "status": "queued",
         "createdAt": now, "updatedAt": now,
     }
-    asyncio.create_task(run_protocol_scan_job(job_id, slug))
+    task = asyncio.create_task(run_protocol_scan_job(job_id, slug))
+    SCAN_TASKS.add(task)
+    task.add_done_callback(SCAN_TASKS.discard)
     return {"jobId": job_id, "status": "queued", "pollUrl": f"/api/scans/jobs/{job_id}"}
 
 
