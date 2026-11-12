@@ -6,20 +6,22 @@ Read-only DeFi protocol intelligence and smart-contract research workbench.
 - Dashboard: https://aegis-defi-intelligence.vercel.app
 - API: https://aegis-api-v2-production.up.railway.app
 - Health: https://aegis-api-v2-production.up.railway.app/health
+- Worker health (through API): https://aegis-api-v2-production.up.railway.app/api/worker/health
 
 ## Implemented
 - DeFiLlama protocol registry, TVL metadata, chain/category/search filters and protocol detail.
 - Address candidate extraction with explicit unverified attribution.
 - Read-only EVM inspection at a pinned block: bytecode, balance, nonce and EIP-1967 implementation/admin/beacon slots.
 - Sourcify verified source, ABI and proxy-resolution metadata lookup.
-- Authenticated ZIP upload to a private Slither worker with archive validation and bounded runtime.
+- Authenticated ZIP upload to a private Slither worker with archive validation, serialized execution and bounded runtime.
+- Worker health endpoint reports Slither and solc versions.
 - Foundry pinned-block read-only baseline harness.
-- GitHub Actions CI for frontend build and backend tests.
+- GitHub Actions CI for backend tests, frontend build, dependency audit and container builds.
 
 ## Repository
 - `app/`: Next.js dashboard.
-- `backend/main.py`: FastAPI gateway, protocol and contract intelligence, authenticated Slither forwarding.
-- `backend/worker.py`: isolated Slither worker.
+- `backend/main.py`: FastAPI gateway, protocol/contract intelligence, worker health and authenticated Slither forwarding.
+- `backend/worker.py`: private Slither worker.
 - `backend/Dockerfile`, `backend/Dockerfile.worker`: API and worker images.
 - `foundry.toml`, `test/ForkBaseline.t.sol`: pinned fork baseline.
 - `docker-compose.yml`: local API + isolated worker topology.
