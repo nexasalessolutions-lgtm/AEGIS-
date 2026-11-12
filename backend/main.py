@@ -266,6 +266,18 @@ async def inspect_contract(chain: str, address: str):
         ],
     }
 
+@app.get("/api/worker/health")
+async def worker_health():
+    worker_url = os.getenv("AEGIS_WORKER_URL", "http://aegis-slither-worker-v3.railway.internal:8001")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(worker_url + "/health")
+            response.raise_for_status()
+            worker = response.json()
+        return {"status": worker.get("status", "unknown"), "worker": worker}
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(503, "Private Slither worker is unavailable") from exc
+
 @app.post("/api/scans/slither")
 async def queue_slither_scan(file: UploadFile = File(...), authorization: str | None = Header(default=None)):
     token = os.getenv("AEGIS_SCAN_TOKEN", "")
