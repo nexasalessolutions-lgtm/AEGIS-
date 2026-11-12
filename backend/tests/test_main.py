@@ -63,17 +63,16 @@ def test_adapter_contract_discovery_extracts_and_verifies_live_addresses(monkeyp
     async def fake_rpc(chain, method, params):
         if method == "eth_getCode":
             address = params[0].lower()
-            if chain == "ethereum" and address in {
+            if address in {
                 "0x1111111111111111111111111111111111111111",
                 "0x2222222222222222222222222222222222222222",
+                "0x3333333333333333333333333333333333333333",
                 "0x4444444444444444444444444444444444444444",
             }:
                 return "0x60006000"
-            if chain == "polygon" and address == "0x3333333333333333333333333333333333333333":
-                return "0x60006000"
             return "0x"
         if method == "eth_getStorageAt":
-            if params[0].lower() == "0x1111111111111111111111111111111111111111" and params[1] == main.EIP1967["implementation"]:
+            if params[0].lower() == "0x2222222222222222222222222222222222222222" and params[1] == main.EIP1967["implementation"]:
                 return "0x" + "0" * 24 + "4444444444444444444444444444444444444444"
             return "0x" + "0" * 64
         raise AssertionError("Unexpected RPC method " + method)
@@ -88,7 +87,7 @@ def test_adapter_contract_discovery_extracts_and_verifies_live_addresses(monkeyp
     assert {item["chain"] for item in result["candidates"]} >= {"ethereum", "polygon"}
     proxy_impl = next(item for item in result["candidates"] if item["role"] == "proxy_implementation")
     assert proxy_impl["address"].lower() == "0x4444444444444444444444444444444444444444"
-    assert proxy_impl["proxyAddress"].lower() == "0x1111111111111111111111111111111111111111"
+    assert proxy_impl["proxyAddress"].lower() == "0x2222222222222222222222222222222222222222"
 
 
 def test_auto_scan_requires_server_side_token(monkeypatch):
