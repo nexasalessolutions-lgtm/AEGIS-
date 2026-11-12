@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 RUN apt-get update && apt-get install -y --no-install-recommends git curl build-essential && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir slither-analyzer==0.11.3 fastapi==0.115.12 "uvicorn[standard]==0.34.2" python-multipart==0.0.20 solc-select
+RUN pip install --no-cache-dir slither-analyzer==0.11.3 fastapi==0.161.0 "uvicorn[standard]==0.34.2" python-multipart==0.0.33 solc-select
 RUN useradd --create-home --uid 10001 worker
 WORKDIR /app
 COPY worker.py .
