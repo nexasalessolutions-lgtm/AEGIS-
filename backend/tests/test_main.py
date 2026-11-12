@@ -27,3 +27,57 @@ def test_unsupported_chain_is_rejected():
 def test_invalid_protocol_slug_is_rejected():
     response = client.get("/api/protocol/../../etc/passwd")
     assert response.status_code in (400, 404)
+
+
+def test_adapter_contract_discovery_extracts_and_verifies_live_addresses(monkeypatch):
+    import asyncio
+    import main
+
+    main.CACHE.clear()
+    protocol = {"name": "Aave", "chains": ["Ethereum", "Polygon"]}
+    source = '''
+    const addressesProviderRegistryETH = "0x1111111111111111111111111111111111111111";
+    const aaveStakingContract = "0x2222222222222222222222222222222222222222";
+    module.exports = {
+      ethereum: { tvl: ethereum(false) },
+      polygon: v2("polygon", "0x3333333333333333333333333333333333333333")
+    };
+    '''
+    class FakeResponse:
+        def __init__(self, payload=None, text=""):
+            self._payload, self.text, self.status_code = payload, text, 200
+        def raise_for_status(self): return None
+        def json(self): return self._payload
+
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return None
+        async def get(self, url):
+            if url.endswith("/contents/projects/aave"):
+                return FakeResponse([{"type":"file","path":"projects/aave/index.js","download_url":"https://raw.githubusercontent.com/DefiLlama/DefiLlama-Adapters/main/projects/aave/index.js"}])
+            if "raw.githubusercontent.com" in url:
+                return FakeResponse(text=source)
+            raise AssertionError("Unexpected URL " + url)
+
+    async def fake_get_json(*args, **kwargs): return protocol
+    async def fake_rpc(chain, method, params):
+        if method == "eth_getCode":
+            address = params[0].lower()
+            if chain == "ethereum" and address in {
+                "0x1111111111111111111111111111111111111111",
+                "0x2222222222222222222222222222222222222222",
+            }:
+                return "0x60006000"
+            if chain == "polygon" and address == "0x3333333333333333333333333333333333333333":
+                return "0x60006000"
+            return "0x"
+        raise AssertionError("Unexpected RPC method " + method)
+
+    monkeypatch.setattr(main, "get_json", fake_get_json)
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+    monkeypatch.setattr(main, "rpc_call", fake_rpc)
+    result = asyncio.run(main.protocol_contract_candidates("aave"))
+    assert result["adapterFilesRead"] == 1
+    assert result["candidateCount"] >= 2
+    assert all(item["hasCode"] for item in result["candidates"])
+    assert {item["chain"] for item in result["candidates"]} >= {"ethereum", "polygon"}
