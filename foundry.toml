@@ -1,0 +1,15 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+cache_path = "cache"
+solc_version = "0.8.30"
+optimizer = true
+optimizer_runs = 200
+bytecode_hash = "none"
+fuzz.runs = 256
+invariant.runs = 128
+invariant.depth = 32
+
+[profile.default.rpc_endpoints]
+# Pass RPC_URL at runtime; do not commit credentials.
