@@ -481,6 +481,7 @@ async def protocol_contract_candidates(slug: str):
         "protocolName": protocol.get("name"),
         "candidates": verified[:200],
         "candidateCount": len(verified),
+        "proxyImplementationsResolved": sum(1 for item in verified if item.get("role") == "proxy_implementation"),
         "sourceCandidates": len(collected),
         "adapterFilesRead": len(adapter_sources),
         "adapterFiles": [path for path, _ in adapter_sources],
