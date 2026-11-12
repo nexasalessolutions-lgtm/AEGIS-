@@ -381,7 +381,7 @@ async def protocol_contract_candidates(slug: str):
     ranked = sorted(
         collected.values(),
         key=lambda x: (0 if x["confidence"] == "medium" else 1, x["sourcePath"], x["sourceLine"]),
-    )[:80]
+    )[:50]
 
     # Verify candidates against chain bytecode. Unknown-chain candidates are checked against
     # the protocol's advertised EVM chains, with bounded concurrency and a hard request cap.
@@ -389,14 +389,14 @@ async def protocol_contract_candidates(slug: str):
     checks = 0
     async def verify_candidate(candidate: dict[str, Any]):
         nonlocal checks
-        target_chains = [candidate["chain"]] if candidate.get("chain") else supported[:8]
+        target_chains = [candidate["chain"]] if candidate.get("chain") else supported[:4]
         if not target_chains:
             return []
         found = []
         for chain_key in target_chains:
             async with semaphore:
                 checks += 1
-                if checks > 500:
+                if checks > 200:
                     return found
                 try:
                     code = await rpc_call(chain_key, "eth_getCode", [candidate["address"], "latest"])
