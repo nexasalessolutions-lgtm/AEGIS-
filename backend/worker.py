@@ -8,7 +8,15 @@ MAX_ARCHIVE, MAX_EXPANDED, MAX_FILES, TIMEOUT = 20*1024*1024, 100*1024*1024, 500
 
 @app.get("/health")
 async def health():
-    return {"status":"ok","worker":"slither","mode":"static-analysis-only"}
+    slither = subprocess.run(["slither", "--version"], capture_output=True, text=True, timeout=8)
+    solc = subprocess.run(["solc", "--version"], capture_output=True, text=True, timeout=8)
+    return {
+        "status": "ok" if slither.returncode == 0 and solc.returncode == 0 else "degraded",
+        "worker": "slither",
+        "mode": "static-analysis-only",
+        "slitherVersion": slither.stdout.strip() or slither.stderr.strip(),
+        "solcVersion": solc.stdout.strip() or solc.stderr.strip(),
+    }
 
 def extract_sources(data: bytes, destination: Path) -> int:
     if len(data) > MAX_ARCHIVE: raise HTTPException(413,"Archive exceeds 20 MB limit")
@@ -41,7 +49,7 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
         project=Path(tmp)/"project"; project.mkdir()
         extracted=extract_sources(data,project)
         try:
-            proc=await asyncio.to_thread(subprocess.run,["slither",".","--json","-"],cwd=project,capture_output=True,text=True,timeout=TIMEOUT,check=False,env={"PATH":os.environ.get("PATH","/usr/local/bin:/usr/bin:/bin"),"HOME":"/tmp"})
+            proc=await asyncio.to_thread(subprocess.run,["slither",".","--json","-"],cwd=project,capture_output=True,text=True,timeout=TIMEOUT,check=False,env={"PATH":os.environ.get("PATH","/usr/local/bin:/usr/bin:/bin"),"HOME":os.environ.get("HOME", "/home/worker"), "TMPDIR":"/tmp"})
         except subprocess.TimeoutExpired as exc: raise HTTPException(408,"Static analysis exceeded 180 seconds") from exc
         payload=None
         for candidate in (proc.stdout,proc.stderr):
