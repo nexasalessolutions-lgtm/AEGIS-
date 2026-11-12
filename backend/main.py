@@ -22,8 +22,11 @@ app.add_middleware(
 LLAMA = "https://api.llama.fi"
 SOURCIFY = "https://sourcify.dev/server"
 CHAIN_IDS = {
-    "ethereum": 1, "optimism": 10, "bsc": 56, "gnosis": 100,
-    "polygon": 137, "arbitrum": 42161, "avalanche": 43114, "base": 8453,
+    "ethereum": 1, "optimism": 10, "bsc": 56, "gnosis": 100, "polygon": 137,
+    "fantom": 250, "zksync": 324, "celo": 42220, "arbitrum": 42161,
+    "avalanche": 43114, "base": 8453, "linea": 59144, "scroll": 534352,
+    "blast": 81457, "mode": 34443, "mantle": 5000, "opbnb": 204,
+    "sonic": 146, "unichain": 130, "berachain": 80094, "zora": 7777777,
 }
 RPCS = {
     "ethereum": ["https://ethereum-rpc.publicnode.com", "https://1rpc.io/eth"],
@@ -34,6 +37,19 @@ RPCS = {
     "bsc": ["https://bsc-rpc.publicnode.com", "https://1rpc.io/bnb"],
     "avalanche": ["https://avalanche-c-chain-rpc.publicnode.com"],
     "gnosis": ["https://gnosis-rpc.publicnode.com"],
+    "celo": ["https://forno.celo.org"],
+    "fantom": ["https://rpc.ftm.tools"],
+    "zksync": ["https://mainnet.era.zksync.io"],
+    "linea": ["https://rpc.linea.build"],
+    "scroll": ["https://rpc.scroll.io"],
+    "blast": ["https://rpc.blast.io"],
+    "mode": ["https://mainnet.mode.network"],
+    "mantle": ["https://rpc.mantle.xyz"],
+    "opbnb": ["https://opbnb-mainnet-rpc.bnbchain.org"],
+    "sonic": ["https://rpc.soniclabs.com"],
+    "unichain": ["https://mainnet.unichain.org"],
+    "berachain": ["https://rpc.berachain.com"],
+    "zora": ["https://rpc.zora.energy"],
 }
 EIP1967 = {
     "implementation": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
@@ -150,48 +166,240 @@ async def protocols(
 
 @app.get("/api/protocol/{slug}/contracts")
 async def protocol_contract_candidates(slug: str):
+    """Discover contract candidates from the protocol's DeFiLlama adapter source, then verify live code on supported chains."""
     if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
         raise HTTPException(400, "Invalid protocol slug")
+    cache_key = "contracts:" + slug.lower()
+    cached = CACHE.get(cache_key)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
     try:
-        protocol = await get_json(LLAMA + "/protocol/" + slug, cache_key="protocol:" + slug, ttl=120)
+        protocol = await get_json(LLAMA + "/protocol/" + slug, cache_key="protocol:" + slug, ttl=300)
     except httpx.HTTPError as exc:
         raise HTTPException(502, "Protocol detail upstream request failed") from exc
-    found: dict[str, dict[str, Any]] = {}
-    visited = 0
 
-    def walk(value: Any, path: str, depth: int = 0):
+    chain_aliases = {
+        "ethereum":"ethereum", "eth":"ethereum", "arbitrum":"arbitrum",
+        "arbitrum one":"arbitrum", "optimism":"optimism", "op":"optimism",
+        "base":"base", "polygon":"polygon", "matic":"polygon", "bsc":"bsc",
+        "bnb chain":"bsc", "avalanche":"avalanche", "avax":"avalanche",
+        "gnosis":"gnosis", "xdai":"gnosis", "celo":"celo", "fantom":"fantom",
+        "sonic":"sonic", "linea":"linea", "scroll":"scroll", "zksync era":"zksync",
+        "zksync":"zksync", "mantle":"mantle", "blast":"blast", "mode":"mode",
+        "opbnb":"opbnb", "unichain":"unichain", "berachain":"berachain", "zora":"zora",
+    }
+    supported = []
+    for name in protocol.get("chains") or []:
+        key = chain_aliases.get(str(name).strip().lower())
+        if key and key in RPCS and key not in supported:
+            supported.append(key)
+
+    adapter_sources: list[tuple[str, str]] = []
+    adapter_warnings: list[str] = []
+    github_headers = {
+        "User-Agent": "AEGIS-DeFi-Intelligence",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient(timeout=18, headers=github_headers, follow_redirects=True) as client:
+        listing = None
+        paths_to_try = [
+            f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}",
+            f"https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects/{slug}.js",
+        ]
+        for url in paths_to_try:
+            try:
+                response = await client.get(url)
+                if response.status_code == 404:
+                    continue
+                response.raise_for_status()
+                listing = response.json()
+                break
+            except httpx.HTTPError as exc:
+                adapter_warnings.append("DeFiLlama adapter repository lookup failed: " + str(exc))
+                break
+
+        # If the slug casing differs, resolve it against the public projects directory once.
+        if listing is None and not adapter_warnings:
+            try:
+                response = await client.get("https://api.github.com/repos/DefiLlama/DefiLlama-Adapters/contents/projects")
+                response.raise_for_status()
+                entries = response.json()
+                match = next((x for x in entries if str(x.get("name", "")).lower() in {slug.lower(), (slug + ".js").lower()}), None)
+                if match:
+                    response = await client.get(match["url"])
+                    response.raise_for_status()
+                    listing = response.json()
+            except httpx.HTTPError as exc:
+                adapter_warnings.append("Could not resolve adapter directory: " + str(exc))
+
+        file_entries: list[dict[str, Any]] = []
+        async def collect(entries: Any, depth: int = 0):
+            if depth > 2 or not isinstance(entries, list):
+                return
+            for entry in entries:
+                if len(file_entries) >= 35:
+                    return
+                kind = entry.get("type")
+                path = str(entry.get("path", ""))
+                if kind == "file" and path.lower().endswith((".js", ".ts", ".json")):
+                    file_entries.append(entry)
+                elif kind == "dir" and depth < 2:
+                    try:
+                        sub = await client.get(entry["url"])
+                        sub.raise_for_status()
+                        await collect(sub.json(), depth + 1)
+                    except httpx.HTTPError:
+                        continue
+
+        if listing is not None:
+            if isinstance(listing, list):
+                await collect(listing)
+            elif isinstance(listing, dict) and listing.get("type") == "file":
+                file_entries.append(listing)
+        for entry in file_entries:
+            raw_url = entry.get("download_url")
+            if not raw_url:
+                continue
+            try:
+                response = await client.get(raw_url)
+                response.raise_for_status()
+                adapter_sources.append((str(entry.get("path", "")), response.text[:600_000]))
+            except httpx.HTTPError:
+                continue
+
+    address_pattern = re.compile(r"0x[a-fA-F0-9]{40}")
+    role_pattern = re.compile(r"\b(factory|router|pool|vault|comptroller|controller|registry|proxy|manager|lendingPool|market|staking|gauge|bridge|oracle|treasury|owner|multisig|addressProvider|implementation|beacon|diamond|escrow|masterChef|chef|distributor|governor|timelock|strategy|wrapper)\b", re.I)
+    token_pattern = re.compile(r"\b(token|asset|reward|underlying|symbol|blacklist|stablecoin|coreAssets|weth|usdc|usdt|dai)\b", re.I)
+    chain_pattern = re.compile(r"\b(ethereum|arbitrum|optimism|polygon|base|bsc|avalanche|avax|gnosis|xdai|celo|fantom|sonic|linea|scroll|zksync|mantle|blast|mode|opbnb|unichain|berachain|zora)\b", re.I)
+    collected: dict[str, dict[str, Any]] = {}
+
+    def add_candidate(address: str, source_path: str, source_line: int, context: str, source_url: str):
+        if address.lower() == "0x" + "0" * 40:
+            return
+        chain = None
+        aliases = chain_pattern.findall(context)
+        for alias in reversed(aliases):
+            mapped = chain_aliases.get(alias.lower())
+            if mapped in supported:
+                chain = mapped
+                break
+        if chain is None:
+            # Explicit suffixes are common in adapter constant names (e.g. registryETH).
+            if re.search(r"\b[A-Za-z0-9_]+ETH\b", context) and "ethereum" in supported:
+                chain = "ethereum"
+            elif len(supported) == 1:
+                chain = supported[0]
+        role_match = role_pattern.search(context)
+        token_match = token_pattern.search(context)
+        role = role_match.group(1).lower() if role_match else ("token_or_asset" if token_match else "adapter_reference")
+        confidence = "medium" if role_match else ("low" if token_match else "low")
+        key = address.lower()
+        current = collected.get(key)
+        record = {
+            "address": address,
+            "chain": chain,
+            "role": role,
+            "confidence": confidence,
+            "source": "DefiLlama adapter source",
+            "sourcePath": source_path,
+            "sourceLine": source_line,
+            "sourceUrl": source_url,
+            "attribution": "unverified_adapter_candidate",
+        }
+        if current is None or (confidence == "medium" and current["confidence"] != "medium"):
+            collected[key] = record
+        elif current and not current.get("chain") and chain:
+            current["chain"] = chain
+
+    for path, source in adapter_sources:
+        lines = source.splitlines()
+        raw_url = "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/" + path
+        for index, line in enumerate(lines):
+            matches = list(address_pattern.finditer(line))
+            if not matches:
+                continue
+            context = "\n".join(lines[max(0, index - 4):min(len(lines), index + 5)])
+            for match in matches:
+                add_candidate(match.group(0), path, index + 1, context, raw_url)
+
+    # Supplement adapter code with any explicit addresses in the protocol metadata itself.
+    visited = 0
+    def walk_metadata(value: Any, path: str = "protocol", depth: int = 0):
         nonlocal visited
-        if depth > 9 or visited > 8000 or value is None:
+        if depth > 8 or visited > 5000 or value is None:
             return
         visited += 1
         if isinstance(value, str):
-            pattern = re.compile(r"(?:([a-zA-Z][a-zA-Z0-9_-]{1,24}):)?(0x[a-fA-F0-9]{40})")
-            for match in pattern.finditer(value):
-                address = match.group(2)
-                if address.lower() == "0x" + "0" * 40:
-                    continue
-                prefix = (match.group(1) or "").lower()
-                chain = prefix if prefix in RPCS else next((c for c in RPCS if c in path.lower()), None)
-                key = (chain or "unknown") + ":" + address.lower()
-                found.setdefault(key, {
-                    "chain": chain, "address": address,
-                    "sourcePath": path, "attribution": "unverified_candidate",
-                })
+            for match in address_pattern.finditer(value):
+                context = path + " " + value
+                add_candidate(match.group(0), "DeFiLlama protocol metadata", 0, context, "https://api.llama.fi/protocol/" + slug)
         elif isinstance(value, list):
-            for index, item in enumerate(value[:500]):
-                walk(item, f"{path}[{index}]", depth + 1)
+            for index, item in enumerate(value[:300]):
+                walk_metadata(item, f"{path}[{index}]", depth + 1)
         elif isinstance(value, dict):
-            for key, item in list(value.items())[:500]:
-                walk(item, f"{path}.{key}", depth + 1)
+            for key, item in list(value.items())[:300]:
+                walk_metadata(item, f"{path}.{key}", depth + 1)
+    walk_metadata(protocol)
 
-    walk(protocol, "protocol")
-    return {
+    # Prioritize likely protocol infrastructure over token/asset references.
+    ranked = sorted(
+        collected.values(),
+        key=lambda x: (0 if x["confidence"] == "medium" else 1, x["sourcePath"], x["sourceLine"]),
+    )[:80]
+
+    # Verify candidates against chain bytecode. Unknown-chain candidates are checked against
+    # the protocol's advertised EVM chains, with bounded concurrency and a hard request cap.
+    semaphore = asyncio.Semaphore(8)
+    checks = 0
+    async def verify_candidate(candidate: dict[str, Any]):
+        nonlocal checks
+        target_chains = [candidate["chain"]] if candidate.get("chain") else supported[:8]
+        if not target_chains:
+            return []
+        found = []
+        for chain_key in target_chains:
+            async with semaphore:
+                checks += 1
+                if checks > 500:
+                    return found
+                try:
+                    code = await rpc_call(chain_key, "eth_getCode", [candidate["address"], "latest"])
+                    if code and code != "0x":
+                        found.append({
+                            **candidate,
+                            "chain": chain_key,
+                            "hasCode": True,
+                            "bytecodeBytes": max(0, (len(code) - 2) // 2),
+                            "attribution": "adapter_source_candidate_code_verified",
+                        })
+                except Exception:
+                    continue
+        return found
+
+    verified_groups = await asyncio.gather(*(verify_candidate(item) for item in ranked))
+    verified = [item for group in verified_groups for item in group]
+    verified.sort(key=lambda x: (0 if x["confidence"] == "medium" else 1, x["chain"], x["address"].lower()))
+    result = {
         "protocolSlug": slug,
-        "candidates": list(found.values())[:250],
-        "count": len(found),
-        "source": "DeFiLlama protocol payload",
-        "warning": "Extracted addresses are unverified candidates. Chain attribution and protocol ownership must be independently validated.",
+        "protocolName": protocol.get("name"),
+        "candidates": verified[:200],
+        "candidateCount": len(verified),
+        "sourceCandidates": len(collected),
+        "adapterFilesRead": len(adapter_sources),
+        "adapterFiles": [path for path, _ in adapter_sources],
+        "chainsChecked": supported,
+        "rpcChecks": checks,
+        "discoveryStatus": "verified_candidates_found" if verified else ("adapter_source_found_no_live_code" if adapter_sources else "adapter_source_not_found"),
+        "sources": [
+            {"name": "DeFiLlama adapter repository", "url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/" + slug},
+            {"name": "DeFiLlama protocol metadata", "url": "https://api.llama.fi/protocol/" + slug},
+        ],
+        "warnings": adapter_warnings,
+        "warning": "Addresses are adapter-source candidates. On-chain bytecode confirms code exists at the address and chain; it does not prove protocol ownership, active use, or vulnerability.",
     }
+    CACHE[cache_key] = (time.monotonic() + 600, result)
+    return result
 
 @app.get("/api/protocol/{slug}")
 async def protocol(slug: str):
