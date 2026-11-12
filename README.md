@@ -13,7 +13,9 @@ Read-only DeFi protocol intelligence and smart-contract research workbench.
 - Address candidate extraction with explicit unverified attribution.
 - Read-only EVM inspection at a pinned block: bytecode, balance, nonce and EIP-1967 implementation/admin/beacon slots.
 - Sourcify verified source, ABI and proxy-resolution metadata lookup.
-- Authenticated ZIP upload to a private Slither worker with archive validation, serialized execution and bounded runtime.
+- One-click protocol-to-contract discovery using DeFiLlama adapter source, public RPC bytecode verification and chain attribution.
+- One-click automatic source retrieval from Sourcify for a selected verified candidate, followed by private Slither analysis; the browser never receives scan credentials.
+- Optional ZIP upload to the private Slither worker with archive validation, serialized execution and bounded runtime.
 - Worker health endpoint reports Slither and solc versions.
 - Foundry pinned-block read-only baseline harness.
 - GitHub Actions CI for backend tests, frontend build, dependency audit and container builds.
