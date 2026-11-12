@@ -2,11 +2,11 @@
 
 ## Hosted services
 - Vercel dashboard: https://aegis-defi-intelligence.vercel.app
-- Railway FastAPI gateway: https://aegis-api-v2-production.up.railway.app
-- Private Slither worker: Railway service `aegis-slither-runner-v4`; no public domain.
+- Railway FastAPI gateway: https://aegis-api-v3-production.up.railway.app
+- Private Slither worker: Railway service `aegis-slither-runner-v5`; no public domain.
 
 ## Railway API gateway
-- Service: `aegis-api-v2`
+- Service: `aegis-api-v3`
 - Repository: `nexasalessolutions-lgtm/AEGIS-`, branch `main`
 - Root directory: `backend`
 - Dockerfile: `Dockerfile`
@@ -15,10 +15,10 @@
 - Variables: `CORS_ORIGINS`, `AEGIS_WORKER_URL`, `AEGIS_WORKER_TOKEN`, `AEGIS_SCAN_TOKEN`.
 
 ## Slither worker
-- Service: `aegis-slither-runner-v4`
+- Service: `aegis-slither-runner-v5`
 - Root directory: `backend`
 - Dockerfile: `Dockerfile.worker`
-- Private endpoint: `aegis-slither-worker-v4.railway.internal:8001`
+- Private endpoint: `aegis-slither-worker-v5.railway.internal:8001`
 - Health check: `/health`
 - `PORT=8001`
 - `AEGIS_WORKER_TOKEN` matches the internal token on the API service.
