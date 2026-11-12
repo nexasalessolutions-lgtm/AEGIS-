@@ -319,7 +319,7 @@ async def protocol_contract_candidates(slug: str):
             matches = list(address_pattern.finditer(line))
             if not matches:
                 continue
-            context = "\n".join(lines[max(0, index - 4):min(len(lines), index + 5)])
+            context = "\n".join(lines[max(0, index - 2):min(len(lines), index + 3)])
             for match in matches:
                 add_candidate(match.group(0), path, index + 1, context, raw_url)
 
