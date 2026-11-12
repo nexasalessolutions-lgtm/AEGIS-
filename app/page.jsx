@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-const API = "https://aegis-api-v3-production.up.railway.app";
+const API = "https://aegis-api-v4-production.up.railway.app";
 const money = (n) => { const v=Number(n||0); if(!Number.isFinite(v)) return "—"; return new Intl.NumberFormat("en-US",{notation:"compact",maximumFractionDigits:2,style:"currency",currency:"USD"}).format(v); };
 const short = (s) => s ? s.slice(0,6)+"…"+s.slice(-4) : "—";
 export default function Home(){
