@@ -1,7 +1,7 @@
 import os, re
 from typing import Any
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title='AEGIS Read-only Intelligence API', version='0.1.0')
@@ -67,3 +67,33 @@ async def inspect_contract(chain: str,address: str):
             source=await get_json(client,f'{SOURCIFY}/v2/contract/{CHAIN_IDS[key]}/{address}',params={'fields':'all'}); verification='sourcify_match'
         except httpx.HTTPError: pass
     return {'chain':key,'chainId':CHAIN_IDS[key],'address':address,'hasCode':True,'bytecodeBytes':max(0,(len(code)-2)//2),'bytecode':code,'verifiedSource':source,'verification':verification,'evidence':{'codeMethod':'eth_getCode','blockTag':'latest','rpc':'public RPC'},'limitations':['Proxy implementation resolution is not yet performed.','Non-empty bytecode does not establish protocol ownership or vulnerability.']}
+
+@app.post('/api/scans/slither')
+async def queue_slither_scan(file: UploadFile = File(...), authorization: str | None = Header(default=None)):
+    import os
+    token = os.getenv("AEGIS_SCAN_TOKEN", "")
+    if not token:
+        raise HTTPException(503, "Static-analysis gateway is not configured")
+    if authorization != "Bearer " + token:
+        raise HTTPException(401, "Unauthorized")
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        raise HTTPException(400, "Upload a ZIP archive of Solidity project sources")
+    data = await file.read(20 * 1024 * 1024 + 1)
+    if len(data) > 20 * 1024 * 1024:
+        raise HTTPException(413, "Archive exceeds 20 MB limit")
+    worker_url = os.getenv("AEGIS_WORKER_URL", "http://slither-worker:8001")
+    worker_token = os.getenv("AEGIS_WORKER_TOKEN", "")
+    if not worker_token:
+        raise HTTPException(503, "Static-analysis worker credentials are not configured")
+    try:
+        async with httpx.AsyncClient(timeout=200) as client:
+            response = await client.post(
+                worker_url + "/scan/slither",
+                files={"file": (file.filename, data, "application/zip")},
+                headers={"Authorization": "Bearer " + worker_token},
+            )
+        if response.status_code >= 400:
+            raise HTTPException(response.status_code, response.text[:2000])
+        return response.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Static-analysis worker unavailable") from exc
