@@ -50,3 +50,14 @@ Generate secrets in a password manager or platform secret manager; do not commit
 - [ ] Scanner output is reviewed as static-analysis signals, not confirmed vulnerabilities.
 - [ ] A protocol-specific fork test is pinned to an exact chain block and RPC endpoint.
 - [ ] Findings storage, user auth, tenancy, audit logging, backups, and retention are configured before multi-user production use.
+
+## Railway resources already prepared
+
+The Railway project already contains:
+- `aegis-read-api`: the live Bun read-only API.
+- `aegis-api`: prepared for the Python FastAPI gateway, with `backend/` as its root directory, `Dockerfile`, and `/health` check.
+- `aegis-slither-worker`: prepared for `Dockerfile.worker`, with a private-network endpoint and `/health` check.
+
+The API and worker service variables have already been created, including independent random scan and worker tokens. Their values are intentionally not stored in the repository or exposed in the frontend. Keep the current variables; rotate them only through Railway's variable manager if needed.
+
+The only blocking deployment step is granting Railway's GitHub App access to this repository. The current Railway connection returns `User does not have access to the repo`, so the Python API and Slither worker have not been built or started yet.
