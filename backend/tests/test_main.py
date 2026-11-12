@@ -71,6 +71,8 @@ def test_adapter_contract_discovery_extracts_and_verifies_live_addresses(monkeyp
             if chain == "polygon" and address == "0x3333333333333333333333333333333333333333":
                 return "0x60006000"
             return "0x"
+        if method == "eth_getStorageAt":
+            return "0x" + "0" * 64
         raise AssertionError("Unexpected RPC method " + method)
 
     monkeypatch.setattr(main, "get_json", fake_get_json)
