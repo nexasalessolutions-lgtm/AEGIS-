@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import time
@@ -212,7 +213,7 @@ async def inspect_contract(chain: str, address: str):
     if not re.fullmatch(r"0x[a-fA-F0-9]{40}", address):
         raise HTTPException(400, "Invalid EVM address")
     block_tag = await rpc_call(key, "eth_blockNumber", [])
-    code, nonce, balance = await __import__("asyncio").gather(
+    code, nonce, balance = await asyncio.gather(
         rpc_call(key, "eth_getCode", [address, block_tag]),
         rpc_call(key, "eth_getTransactionCount", [address, block_tag]),
         rpc_call(key, "eth_getBalance", [address, block_tag]),
