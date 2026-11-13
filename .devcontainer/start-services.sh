@@ -37,7 +37,7 @@ done
 echo "Building and starting the isolated API + Slither worker..."
 docker compose up -d --build
 
-if ! curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
+if ! curl -fsS http://127.0.0.1:8000/ready >/dev/null 2>&1; then
   echo "Waiting for the AEGIS API..."
   for attempt in $(seq 1 45); do
     if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then break; fi
