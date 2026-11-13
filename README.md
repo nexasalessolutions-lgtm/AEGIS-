@@ -30,9 +30,9 @@ The repository includes a Codespaces development container. On first creation it
 ## Architecture
 
 - `app/`: Next.js dashboard and same-origin API proxy.
-- `backend/main.py`: FastAPI gateway, protocol/contract intelligence and authenticated Slither forwarding.
-- `backend/worker.py`: isolated Slither worker.
-- `backend/Dockerfile`, `backend/Dockerfile.worker`: API and worker images.
+- `backend/main.py`: FastAPI gateway, protocol/contract intelligence and authenticated static-analysis forwarding.
+- `backend/worker.py`: isolated Slither + Aderyn worker.
+- `backend/Dockerfile`, `backend/Dockerfile.worker`: isolated static-analysis worker image.
 - `docker-compose.yml`: local API + isolated worker topology.
 - `.devcontainer/`: GitHub Codespaces setup and startup.
 - `.github/workflows/ci.yml`: automated checks.
