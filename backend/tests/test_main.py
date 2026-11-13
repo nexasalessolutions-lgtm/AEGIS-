@@ -307,3 +307,13 @@ def test_scan_job_memory_cache_is_bounded_without_dropping_active_jobs():
     finally:
         main.SCAN_JOBS.clear()
         main.SCAN_JOBS.update(original)
+
+
+def test_protocol_live_tvl_classification_is_safe_for_untrusted_values():
+    import main
+
+    assert main.has_positive_tvl(100) is True
+    assert main.has_positive_tvl("1.5") is True
+    assert main.has_positive_tvl(0) is False
+    assert main.has_positive_tvl("not-a-number") is False
+    assert main.has_positive_tvl(None) is False
