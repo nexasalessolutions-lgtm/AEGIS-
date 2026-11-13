@@ -642,6 +642,8 @@ async def inspect_contract(chain: str, address: str, block_number: int | None = 
         raise HTTPException(400, f"Unsupported chain. Supported: {', '.join(RPCS)}")
     if not re.fullmatch(r"0x[a-fA-F0-9]{40}", address):
         raise HTTPException(400, "Invalid EVM address")
+    if block_number is not None and block_number < 0:
+        raise HTTPException(400, "Invalid block number")
     block_tag = hex(block_number) if block_number is not None else await rpc_call(key, "eth_blockNumber", [])
     code, nonce, balance = await asyncio.gather(
         rpc_call(key, "eth_getCode", [address, block_tag]),
