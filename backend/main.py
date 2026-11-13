@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+from contextlib import contextmanager
 import json
 import zipfile
 import os
@@ -81,13 +82,21 @@ SCAN_TASKS: set[asyncio.Task] = set()
 DATABASE_PATH = os.getenv("AEGIS_DATABASE_PATH", "/tmp/aegis/aegis.sqlite3")
 
 
+@contextmanager
 def database_connection():
     parent = os.path.dirname(DATABASE_PATH)
     if parent:
         os.makedirs(parent, exist_ok=True)
     connection = sqlite3.connect(DATABASE_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def persist_scan_job(job: dict[str, Any]):
