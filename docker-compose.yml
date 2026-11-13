@@ -8,6 +8,9 @@ services:
       AEGIS_SCAN_TOKEN: ${AEGIS_SCAN_TOKEN:?Set AEGIS_SCAN_TOKEN}
       AEGIS_WORKER_TOKEN: ${AEGIS_WORKER_TOKEN:?Set AEGIS_WORKER_TOKEN}
       AEGIS_WORKER_URL: http://slither-worker:8001
+      AEGIS_DATABASE_PATH: /data/aegis.sqlite3
+    volumes:
+      - aegis-data:/data
     ports:
       - "8000:8000"
     networks: [egress, internal]
@@ -28,6 +31,8 @@ services:
     mem_limit: 2g
     cpus: 2
     networks: [internal]
+volumes:
+  aegis-data:
 networks:
   egress: {}
   internal:
