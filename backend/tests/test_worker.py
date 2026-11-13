@@ -56,3 +56,28 @@ def test_compiler_hint_from_verified_metadata_is_used(tmp_path):
     (tmp_path / "A.sol").write_text("pragma solidity 0.8.19; contract A {}")
     (tmp_path / "aegis-compiler-version.txt").write_text("0.8.19")
     assert choose_compiler(tmp_path)[0] == "0.8.19"
+
+
+def test_normalize_aderyn_findings_preserves_severity_and_source_location():
+    from worker import normalize_aderyn_findings
+
+    payload = {
+        "high_issues": {"issues": [{
+            "title": "Unchecked delegatecall",
+            "description": "A delegatecall target is not validated.",
+            "detector_name": "delegate-call-unchecked-address",
+            "instances": [{"contract_path": "src/Vault.sol", "line_no": 42}],
+        }]},
+        "low_issues": {"issues": [{
+            "title": "Unindexed event",
+            "description": "An event parameter is not indexed.",
+            "detector_name": "unindexed-events",
+            "instances": [{"contract_path": "src/Vault.sol", "line_no": 88}],
+        }]},
+    }
+    findings = normalize_aderyn_findings(payload)
+    assert len(findings) == 2
+    assert findings[0]["impact"] == "High"
+    assert findings[0]["firstElement"] == "src/Vault.sol:42"
+    assert findings[1]["impact"] == "Low"
+    assert findings[1]["engine"] == "Aderyn"
