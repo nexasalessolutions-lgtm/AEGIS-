@@ -176,8 +176,8 @@ def test_interrupted_scan_is_requeued_after_restart(tmp_path, monkeypatch):
         "jobId": "22345678-1234-1234-1234-123456789abc",
         "protocolSlug": "compound",
         "status": "running",
-        "createdAt": 1000.0,
-        "updatedAt": 1001.0,
+        "createdAt": __import__("time").time(),
+        "updatedAt": __import__("time").time(),
     }
     main.persist_scan_job(job)
     main.SCAN_JOBS.clear()
