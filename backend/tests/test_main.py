@@ -185,3 +185,40 @@ def test_interrupted_scan_is_requeued_after_restart(tmp_path, monkeypatch):
     restored = main.SCAN_JOBS[job["jobId"]]
     assert restored["status"] == "queued"
     assert "Recovered after API restart" in restored["recoveryNote"]
+
+
+def test_contract_inspection_falls_back_to_blockscout_abi_and_source(monkeypatch):
+    import asyncio
+    import main
+
+    async def fake_rpc(chain, method, params):
+        if method == "eth_blockNumber":
+            return "0x64"
+        if method == "eth_getCode":
+            return "0x60006000"
+        if method == "eth_getTransactionCount":
+            return "0x2"
+        if method == "eth_getBalance":
+            return "0x0"
+        if method == "eth_getStorageAt":
+            return "0x" + "0" * 64
+        raise AssertionError(method)
+
+    async def fake_get_json(url, **kwargs):
+        if "sourcify" in url:
+            raise main.httpx.ConnectError("Sourcify unavailable")
+        if "blockscout" in url:
+            return {
+                "abi": [{"type": "function", "name": "totalSupply"}],
+                "source_code": "pragma solidity ^0.8.0; contract Example {}",
+                "file_path": "Example.sol",
+                "compiler_version": "v0.8.20+commit.a1b79de6",
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(main, "rpc_call", fake_rpc)
+    monkeypatch.setattr(main, "get_json", fake_get_json)
+    result = asyncio.run(main.inspect_contract("ethereum", "0x" + "1" * 40))
+    assert result["verification"] == "blockscout_verified"
+    assert result["verifiedSource"]["abi"][0]["name"] == "totalSupply"
+    assert "Example.sol" in result["verifiedSource"]["sources"]
