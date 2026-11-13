@@ -303,7 +303,7 @@ async def protocols(
             items.append({
                 "name": item.get("name"), "slug": item.get("slug"),
                 "category": item.get("category"), "chains": supported,
-                "tvl": item.get("tvl"), "url": item.get("url"),
+                "tvl": item.get("tvl"), "active": float(item.get("tvl") or 0) > 0, "url": item.get("url"),
                 "symbol": item.get("symbol"), "chainTvls": item.get("chainTvls", {}),
             })
         items.sort(key=lambda x: float(x.get("tvl") or 0), reverse=True)
