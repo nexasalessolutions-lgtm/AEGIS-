@@ -120,7 +120,10 @@ def test_protocol_scan_runs_multiple_unique_targets_with_a_hard_cap(monkeypatch)
         return {"target": {"chain": candidate["chain"], "address": candidate["address"]}, "analysis": {"findingCount": 2}}
     monkeypatch.setattr(main, "protocol_contract_candidates", fake_discovery)
     monkeypatch.setattr(main, "execute_single_contract_scan", fake_scan)
-    result = asyncio.run(main.execute_protocol_scan("demo"))
+    progress_updates = []
+    result = asyncio.run(main.execute_protocol_scan("demo", progress_callback=progress_updates.append))
+    assert progress_updates[-1]["stage"] == "completed"
+    assert progress_updates[-1]["completed"] == 12
     assert result["targetsDiscovered"] == 16
     assert result["targetsSelected"] == 12
     assert result["targetsScanned"] == 12
