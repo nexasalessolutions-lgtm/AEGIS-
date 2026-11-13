@@ -16,31 +16,27 @@ def version_tuple(value: str):
 def pragma_accepts(expression: str, candidate: str) -> bool:
     current = version_tuple(candidate)
     for alternative in expression.split("||"):
-        tokens = re.findall(r"(\\^|~|>=|<=|>|<|=)?\\s*(\\d+\\.\\d+(?:\\.\\d+)?)", alternative)
+        tokens = re.findall(r"(\^|~|>=|<=|>|<|=)?\s*(\d+\.\d+(?:\.\d+)?)", alternative)
         if not tokens:
             continue
         accepted = True
         for operator, raw in tokens:
             target = version_tuple(raw)
             if operator == "^":
-                if current < target:
-                    accepted = False
                 upper = (target[0] + 1, 0, 0) if target[0] else ((0, target[1] + 1, 0) if target[1] else (0, 0, target[2] + 1))
-                if current >= upper:
-                    accepted = False
+                accepted = accepted and current >= target and current < upper
             elif operator == "~":
-                if current < target or current >= (target[0], target[1] + 1, 0):
-                    accepted = False
-            elif operator == ">=" and current < target:
-                accepted = False
-            elif operator == "<=" and current > target:
-                accepted = False
-            elif operator == ">" and current <= target:
-                accepted = False
-            elif operator == "<" and current >= target:
-                accepted = False
-            elif operator in ("", "=") and current != target:
-                accepted = False
+                accepted = accepted and current >= target and current < (target[0], target[1] + 1, 0)
+            elif operator == ">=":
+                accepted = accepted and current >= target
+            elif operator == "<=":
+                accepted = accepted and current <= target
+            elif operator == ">":
+                accepted = accepted and current > target
+            elif operator == "<":
+                accepted = accepted and current < target
+            else:
+                accepted = accepted and current == target
         if accepted:
             return True
     return False
@@ -52,10 +48,10 @@ def choose_compiler(project: Path):
             text = source.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        pragmas.extend(re.findall(r"pragma\\s+solidity\\s+([^;]+);", text))
+        pragmas.extend(re.findall(r"pragma\s+solidity\s+([^;]+);", text))
     hint_file = project / "aegis-compiler-version.txt"
     if hint_file.is_file():
-        hint = re.search(r"\\d+\\.\\d+\\.\\d+", hint_file.read_text(errors="ignore"))
+        hint = re.search(r"\d+\.\d+\.\d+", hint_file.read_text(errors="ignore"))
         if hint and hint.group(0) in SUPPORTED_SOLC_VERSIONS:
             return hint.group(0), pragmas
     for version in reversed(SUPPORTED_SOLC_VERSIONS):
