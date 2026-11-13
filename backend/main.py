@@ -78,7 +78,7 @@ CACHE: dict[str, tuple[float, Any]] = {}
 SCAN_REQUESTS: dict[str, list[float]] = {}
 SCAN_JOBS: dict[str, dict[str, Any]] = {}
 SCAN_TASKS: set[asyncio.Task] = set()
-DATABASE_PATH = os.getenv("AEGIS_DATABASE_PATH", "/data/aegis.sqlite3")
+DATABASE_PATH = os.getenv("AEGIS_DATABASE_PATH", "/tmp/aegis/aegis.sqlite3")
 
 
 def database_connection():
