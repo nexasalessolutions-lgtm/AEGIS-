@@ -18,7 +18,8 @@ The repository includes a Codespaces development container. On first creation it
 
 - DeFiLlama protocol registry, TVL metadata, chain/category/search filters and protocol detail.
 - Address candidate extraction with explicit unverified attribution.
-- Read-only EVM inspection at a pinned block: bytecode, balance, nonce and EIP-1967 implementation/admin/beacon slots.
+- Read-only EVM inspection at a pinned per-chain block: bytecode, balance, nonce and EIP-1967 implementation/admin/beacon slots.
+- Scan evidence includes the pinned block reference, verified ABI/compiler metadata and per-source SHA-256 manifest.
 - Sourcify verified source, ABI and proxy-resolution metadata lookup.
 - Protocol-to-contract discovery using DeFiLlama adapter source, public RPC bytecode verification and chain attribution.
 - Source retrieval from Sourcify, with supported Blockscout fallback, followed by combined Slither and Aderyn analysis in a private worker.
