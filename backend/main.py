@@ -115,6 +115,21 @@ def persist_scan_job(job: dict[str, Any]):
         connection.execute("DELETE FROM scan_jobs WHERE job_id NOT IN (SELECT job_id FROM scan_jobs ORDER BY created_at DESC LIMIT 1000)")
 
 
+def prune_scan_job_cache(max_entries: int = 100):
+    if len(SCAN_JOBS) <= max_entries:
+        return
+    completed = sorted(
+        (
+            (key, value)
+            for key, value in SCAN_JOBS.items()
+            if value.get("status") not in {"queued", "running"}
+        ),
+        key=lambda pair: pair[1].get("createdAt", 0),
+    )
+    for key, _ in completed[: max(0, len(SCAN_JOBS) - max_entries)]:
+        SCAN_JOBS.pop(key, None)
+
+
 def initialize_database():
     with database_connection() as connection:
         connection.execute("PRAGMA journal_mode=WAL")
@@ -130,7 +145,12 @@ def initialize_database():
             )
         """)
         connection.execute("CREATE INDEX IF NOT EXISTS idx_scan_jobs_created ON scan_jobs(created_at DESC)")
-        rows = connection.execute("SELECT payload FROM scan_jobs ORDER BY created_at DESC LIMIT 1000").fetchall()
+        rows = connection.execute(
+            """SELECT payload FROM scan_jobs
+               ORDER BY CASE WHEN status IN ('queued', 'running') THEN 0 ELSE 1 END,
+                        created_at DESC
+               LIMIT 100"""
+        ).fetchall()
     for row in rows:
         try:
             job = json.loads(row["payload"])
@@ -145,6 +165,7 @@ def initialize_database():
             SCAN_JOBS[job["jobId"]] = job
         except (ValueError, KeyError, TypeError):
             continue
+    prune_scan_job_cache()
 
 
 initialize_database()
@@ -1091,6 +1112,7 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
         "jobId": job_id, "protocolSlug": slug, "status": "queued",
         "createdAt": now, "updatedAt": now,
     }
+    prune_scan_job_cache()
     persist_scan_job(SCAN_JOBS[job_id])
     task = asyncio.create_task(run_protocol_scan_job(job_id, slug))
     SCAN_TASKS.add(task)
@@ -1111,6 +1133,7 @@ async def get_protocol_scan_job(job_id: str, authorization: str | None = Header(
             try:
                 job = json.loads(row["payload"])
                 SCAN_JOBS[job_id] = job
+                prune_scan_job_cache()
             except (ValueError, TypeError):
                 job = None
     if not job:
