@@ -107,7 +107,7 @@ async def get_json(url: str, *, params: dict[str, str] | None = None, cache_key:
 
 async def rpc_call(chain: str, method: str, params: list[Any]) -> Any:
     last_error = "No RPC endpoints configured"
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=8) as client:
         for endpoint in RPCS[chain]:
             try:
                 response = await client.post(
@@ -242,15 +242,22 @@ async def protocol_contract_candidates(slug: str):
                 direct_found = True
                 adapter_sources.append((f"projects/{slug}/index.js", direct.text[:600_000]))
                 imports = re.findall(r"""(?:require\s*\(|from\s*)['"]\./([^'"]+)['"]""", direct.text)
-                for relative in list(dict.fromkeys(imports))[:25]:
+                async def fetch_import(relative: str):
                     if relative.startswith(".") or ".." in PurePosixPath(relative).parts:
-                        continue
+                        return None
                     candidates = [relative] if PurePosixPath(relative).suffix else [relative + ".js", relative + "/index.js"]
                     for candidate_path in candidates:
-                        response = await client.get(raw_root + candidate_path)
-                        if response.status_code == 200:
-                            adapter_sources.append((f"projects/{slug}/{candidate_path}", response.text[:600_000]))
-                            break
+                        try:
+                            response = await client.get(raw_root + candidate_path)
+                            if response.status_code == 200:
+                                return (f"projects/{slug}/{candidate_path}", response.text[:600_000])
+                        except httpx.HTTPError:
+                            continue
+                    return None
+                imported = await asyncio.gather(*(
+                    fetch_import(relative) for relative in list(dict.fromkeys(imports))[:25]
+                ))
+                adapter_sources.extend(item for item in imported if item)
         except httpx.HTTPError as exc:
             adapter_warnings.append("Direct adapter source lookup failed: " + str(exc))
         if not direct_found:
@@ -467,7 +474,7 @@ async def protocol_contract_candidates(slug: str):
             except Exception:
                 return None
 
-    proxy_candidates = [x for x in verified if x.get("confidence") == "medium"][:20]
+    proxy_candidates = [x for x in verified if x.get("confidence") == "medium"][:10]
     proxy_results = await asyncio.gather(*(resolve_proxy(item) for item in proxy_candidates))
     verified.extend(item for item in proxy_results if item)
     verified.sort(key=lambda x: (
@@ -673,9 +680,14 @@ async def execute_protocol_scan(slug: str) -> dict[str, Any]:
         raise HTTPException(422, "No verified Solidity source was available from Sourcify or the supported Blockscout explorer for the selected contract.")
 
     archive_buffer = io.BytesIO()
+    compiler_metadata = verified.get("compilerVersion")
+    if not compiler_metadata and isinstance(verified.get("compiler"), dict):
+        compiler_metadata = verified["compiler"].get("version")
     with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path, source in safe_sources:
             archive.writestr(path, source)
+        if compiler_metadata:
+            archive.writestr("aegis-compiler-version.txt", str(compiler_metadata))
     archive_bytes = archive_buffer.getvalue()
     if len(archive_bytes) > 4 * 1024 * 1024:
         raise HTTPException(413, "Automatically collected source bundle exceeds 4 MB.")
