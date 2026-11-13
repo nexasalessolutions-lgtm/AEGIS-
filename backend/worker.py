@@ -72,12 +72,18 @@ async def health():
             return "unavailable: " + str(exc)
     slither_version = await asyncio.to_thread(version, ["slither", "--version"])
     solc_version = await asyncio.to_thread(version, ["solc", "--version"])
-    healthy = not slither_version.startswith("unavailable:") and not solc_version.startswith("unavailable:")
+    aderyn_version = await asyncio.to_thread(version, ["aderyn", "--version"])
+    healthy = (
+        not slither_version.startswith("unavailable:")
+        and not solc_version.startswith("unavailable:")
+        and not aderyn_version.startswith("unavailable:")
+    )
     return {
         "status": "ok" if healthy else "degraded",
         "worker": "slither",
         "mode": "static-analysis-only",
         "slitherVersion": slither_version,
+        "aderynVersion": aderyn_version,
         "solcVersion": solc_version,
     }
 
@@ -100,6 +106,29 @@ def extract_sources(data: bytes, destination: Path) -> int:
         written+=1
     if not any(destination.rglob("*.sol")): raise HTTPException(400,"Archive must contain at least one Solidity source file")
     return written
+
+def normalize_aderyn_findings(payload: dict) -> list[dict]:
+    findings = []
+    for severity_key, severity in (("high_issues", "High"), ("low_issues", "Low")):
+        section = payload.get(severity_key) or {}
+        issues = section.get("issues", []) if isinstance(section, dict) else []
+        for issue in issues:
+            instances = issue.get("instances") or [{}]
+            for instance in instances:
+                location = instance.get("contract_path") or "source location unavailable"
+                if instance.get("line_no") is not None:
+                    location += ":" + str(instance["line_no"])
+                findings.append({
+                    "id": f"ADERYN-{len(findings) + 1:04d}",
+                    "check": issue.get("detector_name") or issue.get("title") or "Aderyn finding",
+                    "impact": severity,
+                    "confidence": "medium",
+                    "description": (issue.get("title") or "Aderyn finding") + ": " + (issue.get("description") or ""),
+                    "firstElement": location,
+                    "engine": "Aderyn",
+                })
+    return findings
+
 
 @app.post("/scan/slither")
 async def scan_slither(file: UploadFile=File(...), authorization: str|None=Header(default=None)):
@@ -159,6 +188,48 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
                     + ". Compiler diagnostics: " + diagnostics,
                 )
             detectors=payload.get("results",{}).get("detectors",[])
-            findings=[{"id":f"SLITHER-{i+1:04d}","check":x.get("check"),"impact":x.get("impact"),"confidence":x.get("confidence"),"description":x.get("description"),"firstElement":(x.get("elements") or [{}])[0].get("source_mapping",{}).get("filename_relative")} for i,x in enumerate(detectors)]
-            return {"engine":"Slither","status":"completed" if proc.returncode in (0,1) else "completed_with_errors","exitCode":proc.returncode,"compilerVersion":compiler_version,"detectedPragmas":pragmas,"sourceFiles":len(list(project.rglob("*.sol"))),"archiveEntriesExtracted":extracted,"findingCount":len(findings),"findings":findings,"stderr":proc.stderr[-8000:],"classification":"STATIC_ANALYSIS_SIGNAL","disclaimer":"Static-analysis output is a review signal, not a confirmed vulnerability or proof of live exploitability."}
+            slither_findings=[{"id":f"SLITHER-{i+1:04d}","check":x.get("check"),"impact":x.get("impact"),"confidence":x.get("confidence"),"description":x.get("description"),"firstElement":(x.get("elements") or [{}])[0].get("source_mapping",{}).get("filename_relative"),"engine":"Slither"} for i,x in enumerate(detectors)]
+            aderyn_payload = None
+            aderyn_error = None
+            aderyn_report_path = project / "aderyn-report.json"
+            try:
+                aderyn_proc = await asyncio.to_thread(
+                    subprocess.run,
+                    ["aderyn", "--src", ".", "--output", str(aderyn_report_path), "--skip-update-check", "."],
+                    cwd=project, capture_output=True, text=True,
+                    timeout=TIMEOUT, check=False, env=scan_env,
+                )
+                if aderyn_report_path.is_file():
+                    aderyn_payload = json.loads(aderyn_report_path.read_text(encoding="utf-8"))
+                else:
+                    aderyn_error = ((aderyn_proc.stderr or "") + "\n" + (aderyn_proc.stdout or "")).strip()[-4000:]
+                    if not aderyn_error:
+                        aderyn_error = "Aderyn completed without producing its JSON report."
+            except subprocess.TimeoutExpired:
+                aderyn_error = "Aderyn exceeded the 180 second analysis timeout."
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                aderyn_error = str(exc)[:2000]
+            aderyn_findings = normalize_aderyn_findings(aderyn_payload) if aderyn_payload else []
+            findings = slither_findings + aderyn_findings
+            aderyn_issue_count = (aderyn_payload or {}).get("issue_count") or {}
+            partial = aderyn_error is not None
+            return {
+                "engine": "Slither + Aderyn",
+                "status": "completed_with_partial_engines" if partial else ("completed" if proc.returncode in (0,1) else "completed_with_errors"),
+                "exitCode": proc.returncode,
+                "compilerVersion": compiler_version,
+                "detectedPragmas": pragmas,
+                "sourceFiles": len(list(project.rglob("*.sol"))),
+                "archiveEntriesExtracted": extracted,
+                "findingCount": len(findings),
+                "slitherFindingCount": len(slither_findings),
+                "aderynFindingCount": len(aderyn_findings),
+                "aderynIssueCount": aderyn_issue_count,
+                "aderynError": aderyn_error,
+                "findings": findings,
+                "engines": {"slither": {"status": "completed", "findingCount": len(slither_findings)}, "aderyn": {"status": "partial" if partial else "completed", "findingCount": len(aderyn_findings), "error": aderyn_error}},
+                "stderr": proc.stderr[-8000:],
+                "classification": "STATIC_ANALYSIS_SIGNAL",
+                "disclaimer": "Static-analysis output is a review signal, not a confirmed vulnerability or proof of live exploitability."
+            }
     
