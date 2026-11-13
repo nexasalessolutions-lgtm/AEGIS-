@@ -860,13 +860,16 @@ async def execute_single_contract_scan(slug: str, candidate: dict[str, Any], can
             pass
 
     safe_sources: list[tuple[str, str]] = []
+    total_source_bytes = 0
     for path, source in source_files.items():
         normalized = PurePosixPath(path.replace("\\", "/"))
         if normalized.is_absolute() or ".." in normalized.parts:
             continue
-        if normalized.suffix.lower() == ".sol" and len(source.encode("utf-8")) <= 2_000_000:
+        encoded_size = len(source.encode("utf-8"))
+        if normalized.suffix.lower() == ".sol" and encoded_size <= 2_000_000 and total_source_bytes + encoded_size <= 16_000_000:
             safe_sources.append((str(normalized), source))
-        if len(safe_sources) >= 200:
+            total_source_bytes += encoded_size
+        if len(safe_sources) >= 200 or total_source_bytes >= 16_000_000:
             break
     if not safe_sources:
         raise HTTPException(422, "No verified Solidity source was available from Sourcify or the supported Blockscout explorer for the selected contract.")
