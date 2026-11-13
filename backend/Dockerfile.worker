@@ -20,7 +20,7 @@ WORKDIR /app
 COPY worker.py .
 RUN chown -R worker:worker /app
 USER 10001
-ENV HOME=/home/worker
+ENV HOME=/home/worker XDG_CACHE_HOME=/tmp/.cache XDG_CONFIG_HOME=/tmp/.config
 RUN for version in 0.4.26 0.5.17 0.6.12 0.7.6 0.8.19 0.8.20 0.8.30; do solc-select install "$version"; done && solc-select use 0.8.30
 ENV SOLC_VERSION=0.8.30
 EXPOSE 8001
