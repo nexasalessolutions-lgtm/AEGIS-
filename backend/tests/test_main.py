@@ -157,8 +157,8 @@ def test_scan_job_persistence_round_trip(tmp_path, monkeypatch):
         "jobId": "12345678-1234-1234-1234-123456789abc",
         "protocolSlug": "aave",
         "status": "completed",
-        "createdAt": 1000.0,
-        "updatedAt": 1001.0,
+        "createdAt": __import__("time").time(),
+        "updatedAt": __import__("time").time(),
         "result": {"findingCount": 3, "classification": "STATIC_ANALYSIS_SIGNALS"},
     }
     main.persist_scan_job(job)
