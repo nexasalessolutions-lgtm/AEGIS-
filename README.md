@@ -57,7 +57,7 @@ API health: `http://localhost:8000/health`.
 
 Address candidates are not ownership claims. Verified source is not proof of correctness. Slither output is a static-analysis signal, not a confirmed vulnerability. Fork simulations at a pinned block do not alone prove current live exploitability.
 
-Scan job records and complete JSON results are stored in a Docker-managed SQLite volume for 30 days. Execution scheduling is still process-local (not a distributed durable queue), and an interrupted job is marked failed after restart rather than automatically resumed. Complete protocol ownership attribution, full dependency graph, Aderyn/Mythril, protocol-specific fork reproduction, audit logs, multi-user tenancy and signed reports are not yet production-enabled. Live-chain access remains read-only; no wallet signing, transaction submission or fund movement.
+Scan job records and complete JSON results are stored in a Docker-managed SQLite volume for 30 days. The SQLite-backed queue resumes queued or interrupted jobs after an API restart on a single API instance. It is not a distributed multi-instance queue. Complete protocol ownership attribution, full dependency graph, Aderyn/Mythril, protocol-specific fork reproduction, audit logs, multi-user tenancy and signed reports are not yet production-enabled. Live-chain access remains read-only; no wallet signing, transaction submission or fund movement.
 
 ## Usage and security
 
