@@ -578,6 +578,67 @@ async def inspect_contract(chain: str, address: str):
         ],
     }
 
+
+@app.get("/api/protocol/{slug}/snapshot")
+async def protocol_live_snapshot(slug: str, limit: int = Query(12, ge=1, le=12)):
+    """Collect pinned-block, read-only state and verification evidence for discovered contracts."""
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
+        raise HTTPException(400, "Invalid protocol slug")
+    discovered = await protocol_contract_candidates(slug)
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in discovered.get("candidates") or []:
+        chain, address = item.get("chain"), item.get("address")
+        if chain not in CHAIN_IDS or not isinstance(address, str):
+            continue
+        key = (chain, address.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+        if len(unique) >= limit:
+            break
+    semaphore = asyncio.Semaphore(3)
+    async def inspect_one(item: dict[str, Any]) -> dict[str, Any]:
+        async with semaphore:
+            try:
+                evidence = await inspect_contract(item["chain"], item["address"])
+                return {
+                    "role": item.get("role"),
+                    "confidence": item.get("confidence"),
+                    "sourceUrl": item.get("sourceUrl"),
+                    **evidence,
+                }
+            except HTTPException as exc:
+                return {
+                    "chain": item.get("chain"),
+                    "address": item.get("address"),
+                    "role": item.get("role"),
+                    "status": "unavailable",
+                    "error": str(exc.detail),
+                }
+            except Exception as exc:
+                return {
+                    "chain": item.get("chain"),
+                    "address": item.get("address"),
+                    "role": item.get("role"),
+                    "status": "error",
+                    "error": str(exc)[:500],
+                }
+    results = await asyncio.gather(*(inspect_one(item) for item in unique))
+    available = [item for item in results if item.get("hasCode")]
+    return {
+        "protocolSlug": slug,
+        "snapshotAt": time.time(),
+        "blockConsistency": "Each contract is pinned to the latest block observed for its own chain; cross-chain blocks are not simultaneous.",
+        "discoveredCandidates": discovered.get("candidateCount", 0),
+        "targetsInspected": len(results),
+        "targetsAvailable": len(available),
+        "targets": results,
+        "sources": ["public EVM JSON-RPC", "Sourcify v2", "DeFiLlama adapter discovery"],
+        "warning": "This is read-only public-chain evidence. Adapter references do not prove protocol ownership; source verification and bytecode do not prove security."
+    }
+
 @app.get("/api/worker/health")
 async def worker_health():
     worker_url = os.getenv("AEGIS_WORKER_URL", "http://slither-worker:8001")
