@@ -171,7 +171,7 @@ async def protocols(
     chain: str | None = None,
     category: str | None = None,
     q: str | None = None,
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(1000, ge=1, le=10000),
 ):
     try:
         rows = await get_json(LLAMA + "/protocols", cache_key="protocols", ttl=300)
