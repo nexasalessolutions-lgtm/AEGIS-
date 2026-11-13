@@ -147,12 +147,13 @@ initialize_database()
 
 
 def enforce_scan_rate_limit(request: Request):
-    forwarded = request.headers.get('x-aegis-client-ip') or request.headers.get('x-forwarded-for', '')
-    ip = forwarded.split(',')[0].strip() if forwarded else (request.client.host if request.client else 'unknown')
+    # The API is private behind the Next.js proxy; trust the direct peer only.
+    # Forwarded headers are user-controlled unless a trusted proxy rewrites them.
+    ip = request.client.host if request.client else "unknown"
     now = time.monotonic()
     recent = [stamp for stamp in SCAN_REQUESTS.get(ip, []) if now - stamp < 600]
-    if len(recent) >= 3:
-        raise HTTPException(429, 'Scan limit reached for this IP. Try again in 10 minutes.')
+    if len(recent) >= 10:
+        raise HTTPException(429, 'Scan limit reached for this workspace. Try again in 10 minutes.')
     recent.append(now)
     SCAN_REQUESTS[ip] = recent
 
