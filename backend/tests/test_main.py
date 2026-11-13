@@ -225,3 +225,45 @@ def test_contract_inspection_falls_back_to_blockscout_abi_and_source(monkeypatch
     assert result["verification"] == "blockscout_verified"
     assert result["verifiedSource"]["abi"][0]["name"] == "totalSupply"
     assert "Example.sol" in result["verifiedSource"]["sources"]
+
+
+def test_discovery_keeps_same_address_when_deployed_on_multiple_chains(monkeypatch):
+    import asyncio
+    import main
+
+    main.CACHE.clear()
+    protocol = {"name": "Multi-chain", "chains": ["Ethereum", "Polygon"]}
+    address = "0x" + "a" * 40
+    source = (
+        f'const routerEthereum = "{address}";\n'
+        "const fillerOne = 1;\nconst fillerTwo = 2;\nconst fillerThree = 3;\nconst fillerFour = 4;\n"
+        f'const routerPolygon = "{address}";\n'
+    )
+
+    class FakeResponse:
+        status_code = 200
+        def __init__(self, payload=None, text=""):
+            self.payload, self.text = payload, text
+        def raise_for_status(self): return None
+        def json(self): return self.payload
+
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): return None
+        async def get(self, url):
+            if url.endswith("/projects/multichain/index.js"):
+                return FakeResponse(text=source)
+            raise AssertionError(url)
+
+    async def fake_get_json(*args, **kwargs): return protocol
+    async def fake_rpc(chain, method, params):
+        if method == "eth_getCode": return "0x6000"
+        if method == "eth_getStorageAt": return "0x" + "0" * 64
+        raise AssertionError(method)
+
+    monkeypatch.setattr(main, "get_json", fake_get_json)
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+    monkeypatch.setattr(main, "rpc_call", fake_rpc)
+    result = asyncio.run(main.protocol_contract_candidates("multichain"))
+    matches = [item for item in result["candidates"] if item["address"].lower() == address.lower()]
+    assert {item["chain"] for item in matches} == {"ethereum", "polygon"}
