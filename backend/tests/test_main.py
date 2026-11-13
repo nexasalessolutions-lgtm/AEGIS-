@@ -146,3 +146,42 @@ def test_protocol_snapshot_returns_pinned_block_contract_evidence(monkeypatch):
     assert result["targetsAvailable"] == 2
     assert {item["chain"] for item in result["targets"]} == {"ethereum", "base"}
     assert all(item["blockNumber"] == 123 for item in result["targets"])
+
+
+def test_scan_job_persistence_round_trip(tmp_path, monkeypatch):
+    import main
+
+    monkeypatch.setattr(main, "DATABASE_PATH", str(tmp_path / "aegis.sqlite3"))
+    main.initialize_database()
+    job = {
+        "jobId": "12345678-1234-1234-1234-123456789abc",
+        "protocolSlug": "aave",
+        "status": "completed",
+        "createdAt": 1000.0,
+        "updatedAt": 1001.0,
+        "result": {"findingCount": 3, "classification": "STATIC_ANALYSIS_SIGNALS"},
+    }
+    main.persist_scan_job(job)
+    main.SCAN_JOBS.clear()
+    main.initialize_database()
+    assert main.SCAN_JOBS[job["jobId"]]["result"]["findingCount"] == 3
+
+
+def test_interrupted_scan_is_marked_failed_after_restart(tmp_path, monkeypatch):
+    import main
+
+    monkeypatch.setattr(main, "DATABASE_PATH", str(tmp_path / "restart.sqlite3"))
+    main.initialize_database()
+    job = {
+        "jobId": "22345678-1234-1234-1234-123456789abc",
+        "protocolSlug": "compound",
+        "status": "running",
+        "createdAt": 1000.0,
+        "updatedAt": 1001.0,
+    }
+    main.persist_scan_job(job)
+    main.SCAN_JOBS.clear()
+    main.initialize_database()
+    restored = main.SCAN_JOBS[job["jobId"]]
+    assert restored["status"] == "failed"
+    assert "restarted" in restored["error"]
