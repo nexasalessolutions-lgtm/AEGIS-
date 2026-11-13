@@ -61,6 +61,8 @@ def test_adapter_contract_discovery_extracts_and_verifies_live_addresses(monkeyp
 
     async def fake_get_json(*args, **kwargs): return protocol
     async def fake_rpc(chain, method, params):
+        if method == "eth_blockNumber":
+            return "0x64"
         if method == "eth_getCode":
             address = params[0].lower()
             if address == "0x3333333333333333333333333333333333333333":
@@ -140,10 +142,15 @@ def test_protocol_snapshot_returns_pinned_block_contract_evidence(monkeypatch):
             {"chain": "ethereum", "address": "0x" + "1" * 40, "role": "core", "confidence": "high"},
             {"chain": "base", "address": "0x" + "2" * 40, "role": "vault", "confidence": "high"},
         ], "candidateCount": 2}
-    async def fake_inspect(chain, address):
-        return {"chain": chain, "address": address, "hasCode": True, "blockNumber": 123, "bytecode": "0x6000", "bytecodeBytes": 2, "verifiedSource": {"abi": []}}
+    async def fake_inspect(chain, address, block_number=None):
+        return {"chain": chain, "address": address, "hasCode": True, "blockNumber": block_number or 123, "bytecode": "0x6000", "bytecodeBytes": 2, "verifiedSource": {"abi": []}}
+    async def fake_rpc(chain, method, params):
+        if method == "eth_blockNumber":
+            return "0x7b"
+        raise AssertionError(method)
     monkeypatch.setattr(main, "protocol_contract_candidates", fake_discovery)
     monkeypatch.setattr(main, "inspect_contract", fake_inspect)
+    monkeypatch.setattr(main, "rpc_call", fake_rpc)
     result = asyncio.run(main.protocol_live_snapshot("demo", 12))
     assert result["targetsInspected"] == 2
     assert result["targetsAvailable"] == 2
@@ -257,6 +264,7 @@ def test_discovery_keeps_same_address_when_deployed_on_multiple_chains(monkeypat
 
     async def fake_get_json(*args, **kwargs): return protocol
     async def fake_rpc(chain, method, params):
+        if method == "eth_blockNumber": return "0x64"
         if method == "eth_getCode": return "0x6000"
         if method == "eth_getStorageAt": return "0x" + "0" * 64
         raise AssertionError(method)
@@ -267,3 +275,4 @@ def test_discovery_keeps_same_address_when_deployed_on_multiple_chains(monkeypat
     result = asyncio.run(main.protocol_contract_candidates("multichain"))
     matches = [item for item in result["candidates"] if item["address"].lower() == address.lower()]
     assert {item["chain"] for item in matches} == {"ethereum", "polygon"}
+    assert all(item["blockNumber"] == 100 for item in matches)
