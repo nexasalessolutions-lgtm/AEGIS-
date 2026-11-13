@@ -88,6 +88,7 @@ def database_connection():
     if parent:
         os.makedirs(parent, exist_ok=True)
     connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    connection.execute("PRAGMA busy_timeout=10000")
     connection.row_factory = sqlite3.Row
     try:
         yield connection
@@ -115,6 +116,8 @@ def persist_scan_job(job: dict[str, Any]):
 
 def initialize_database():
     with database_connection() as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
         connection.execute("""
             CREATE TABLE IF NOT EXISTS scan_jobs (
                 job_id TEXT PRIMARY KEY,
