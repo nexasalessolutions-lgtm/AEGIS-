@@ -276,3 +276,34 @@ def test_discovery_keeps_same_address_when_deployed_on_multiple_chains(monkeypat
     matches = [item for item in result["candidates"] if item["address"].lower() == address.lower()]
     assert {item["chain"] for item in matches} == {"ethereum", "polygon"}
     assert all(item["blockNumber"] == 100 for item in matches)
+
+
+def test_scan_job_memory_cache_is_bounded_without_dropping_active_jobs():
+    import main
+
+    original = dict(main.SCAN_JOBS)
+    try:
+        main.SCAN_JOBS.clear()
+        for index in range(105):
+            job_id = f"cache-{index}"
+            main.SCAN_JOBS[job_id] = {
+                "jobId": job_id,
+                "protocolSlug": "demo",
+                "status": "completed",
+                "createdAt": float(index),
+                "updatedAt": float(index),
+            }
+        main.SCAN_JOBS["active-job"] = {
+            "jobId": "active-job",
+            "protocolSlug": "demo",
+            "status": "running",
+            "createdAt": 0.0,
+            "updatedAt": 0.0,
+        }
+        main.prune_scan_job_cache()
+        assert len(main.SCAN_JOBS) == 100
+        assert "active-job" in main.SCAN_JOBS
+        assert "cache-104" in main.SCAN_JOBS
+    finally:
+        main.SCAN_JOBS.clear()
+        main.SCAN_JOBS.update(original)
