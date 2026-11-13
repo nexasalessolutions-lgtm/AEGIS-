@@ -942,7 +942,7 @@ async def execute_protocol_scan(slug: str, progress_callback=None) -> dict[str, 
             continue
         seen.add(key)
         unique.append(item)
-        if len(unique) >= 12:
+        if len(unique) >= 50:
             break
     if not unique:
         raise HTTPException(422, "No supported, on-chain-verified contract targets were available.")
@@ -974,6 +974,7 @@ async def execute_protocol_scan(slug: str, progress_callback=None) -> dict[str, 
         "protocolSlug": slug,
         "targetsDiscovered": len(candidates),
         "targetsSelected": len(unique),
+        "targetsDeferred": max(0, len(candidates) - len(unique)),
         "targetsScanned": len(completed),
         "targetsUnavailable": len(results) - len(completed),
         "findingCount": finding_count,
