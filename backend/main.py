@@ -590,12 +590,10 @@ async def worker_health():
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(503, "Private Slither worker is unavailable") from exc
 
-async def execute_protocol_scan(slug: str) -> dict[str, Any]:
-    candidates_result = await protocol_contract_candidates(slug)
+async def execute_single_contract_scan(slug: str, candidate: dict[str, Any], candidates_result: dict[str, Any]) -> dict[str, Any]:
     candidates = candidates_result.get("candidates") or []
     if not candidates:
         raise HTTPException(404, "No on-chain-verified adapter contract candidates were discovered for this protocol.")
-    candidate = next((x for x in candidates if x.get("confidence") == "medium"), candidates[0])
     chain = candidate.get("chain")
     address = candidate.get("address")
     if not chain or chain not in CHAIN_IDS:
@@ -605,7 +603,7 @@ async def execute_protocol_scan(slug: str) -> dict[str, Any]:
     try:
         verified = await get_json(
             f"{SOURCIFY}/v2/contract/{CHAIN_IDS[chain]}/{address}",
-            params={"fields": "sources"},
+            params={"fields": "all"},
             cache_key=f"sourcify-sources:{chain}:{address.lower()}",
             ttl=3600,
         )
@@ -715,12 +713,61 @@ async def execute_protocol_scan(slug: str) -> dict[str, Any]:
             "chain": chain, "chainId": CHAIN_IDS[chain], "address": address,
             "role": candidate.get("role"), "adapterSource": candidate.get("sourceUrl"),
             "sourceVerification": verified.get("match") or verified.get("runtimeMatch") or source_provenance,
+            "abi": verified.get("abi") or verified.get("ABI"),
+            "compilerVersion": verified.get("compilerVersion") or (verified.get("compiler") or {}).get("version"),
         },
         "sourceFiles": len(safe_sources),
         "sourceProvenance": source_provenance,
         "analysis": analysis,
         "classification": "STATIC_ANALYSIS_SIGNAL",
         "disclaimer": "Static-analysis results require manual security review and are not proof of exploitability or current live exploitability.",
+    }
+
+
+async def execute_protocol_scan(slug: str) -> dict[str, Any]:
+    """Run bounded static analysis across the discovered on-chain contract set."""
+    discovered = await protocol_contract_candidates(slug)
+    candidates = discovered.get("candidates") or []
+    if not candidates:
+        raise HTTPException(404, "No on-chain-verified adapter contract candidates were discovered for this protocol.")
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in candidates:
+        chain, address = item.get("chain"), item.get("address")
+        if chain not in CHAIN_IDS or not isinstance(address, str):
+            continue
+        key = (chain, address.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+        if len(unique) >= 12:
+            break
+    if not unique:
+        raise HTTPException(422, "No supported, on-chain-verified contract targets were available.")
+    semaphore = asyncio.Semaphore(2)
+    async def scan_one(item: dict[str, Any]) -> dict[str, Any]:
+        async with semaphore:
+            try:
+                return await execute_single_contract_scan(slug, item, discovered)
+            except HTTPException as exc:
+                return {"target": {"chain": item.get("chain"), "address": item.get("address"), "role": item.get("role")}, "status": "unavailable", "error": str(exc.detail), "statusCode": exc.status_code}
+            except Exception as exc:
+                return {"target": {"chain": item.get("chain"), "address": item.get("address"), "role": item.get("role")}, "status": "error", "error": str(exc)[:1000]}
+    results = await asyncio.gather(*(scan_one(item) for item in unique))
+    completed = [item for item in results if item.get("analysis")]
+    finding_count = sum(int(item.get("analysis", {}).get("findingCount") or 0) for item in completed)
+    return {
+        "protocolSlug": slug,
+        "targetsDiscovered": len(candidates),
+        "targetsSelected": len(unique),
+        "targetsScanned": len(completed),
+        "targetsUnavailable": len(results) - len(completed),
+        "findingCount": finding_count,
+        "targetResults": results,
+        "classification": "STATIC_ANALYSIS_SIGNALS",
+        "discovery": {"candidateCount": discovered.get("candidateCount"), "chainsChecked": discovered.get("chainsChecked"), "adapterFilesRead": discovered.get("adapterFilesRead"), "rpcChecks": discovered.get("rpcChecks"), "warnings": discovered.get("warnings", [])},
+        "disclaimer": "Slither findings are static-analysis signals. A clean result is not proof of safety; a finding is not confirmed until reviewed and reproduced in a controlled, non-broadcast fork environment."
     }
 
 
