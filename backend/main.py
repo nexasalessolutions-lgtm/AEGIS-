@@ -645,6 +645,49 @@ async def inspect_contract(chain: str, address: str):
         verification = verified_source.get("match", "verified")
     except httpx.HTTPError:
         pass
+    if not verified_source and key in BLOCKSCOUT:
+        try:
+            explorer = await get_json(
+                f"{BLOCKSCOUT[key]}/api/v2/smart-contracts/{address}",
+                cache_key=f"blockscout-inspection:{key}:{address.lower()}",
+                ttl=600,
+            )
+            raw_source = explorer.get("source_code") or explorer.get("sourceCode") or ""
+            normalized_sources: dict[str, dict[str, str]] = {}
+            if isinstance(raw_source, str) and raw_source.strip():
+                try:
+                    parsed_source = json.loads(raw_source)
+                except (ValueError, TypeError):
+                    parsed_source = None
+                if isinstance(parsed_source, dict) and isinstance(parsed_source.get("sources"), dict):
+                    normalized_sources = {
+                        str(path): {"content": value.get("content", "")}
+                        for path, value in parsed_source["sources"].items()
+                        if isinstance(value, dict) and isinstance(value.get("content"), str)
+                    }
+                else:
+                    normalized_sources = {str(explorer.get("file_path") or "Contract.sol"): {"content": raw_source}}
+            for extra in explorer.get("additional_sources") or explorer.get("additionalSources") or []:
+                if isinstance(extra, dict):
+                    extra_path = extra.get("file_path") or extra.get("filePath") or f"additional-{len(normalized_sources)}.sol"
+                    extra_content = extra.get("source_code") or extra.get("sourceCode") or extra.get("source")
+                    if isinstance(extra_content, str):
+                        normalized_sources[str(extra_path)] = {"content": extra_content}
+            if normalized_sources or explorer.get("abi"):
+                verified_source = {
+                    "match": "blockscout_verified",
+                    "abi": explorer.get("abi") or explorer.get("ABI"),
+                    "sources": normalized_sources,
+                    "compilerVersion": explorer.get("compiler_version") or explorer.get("compilerVersion"),
+                    "language": explorer.get("language"),
+                    "optimization_enabled": explorer.get("optimization_enabled"),
+                    "optimization_runs": explorer.get("optimization_runs"),
+                    "proxyType": explorer.get("proxy_type"),
+                    "implementationAddress": explorer.get("implementations"),
+                }
+                verification = "blockscout_verified"
+        except (httpx.HTTPError, ValueError, TypeError):
+            pass
     return {
         "chain": key, "chainId": CHAIN_IDS[key], "address": address,
         "hasCode": True, "bytecodeBytes": max(0, (len(code) - 2) // 2),
