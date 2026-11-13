@@ -1029,7 +1029,7 @@ async def execute_protocol_scan(slug: str, progress_callback=None) -> dict[str, 
         "findingCount": finding_count,
         "targetResults": results,
         "classification": "STATIC_ANALYSIS_SIGNALS",
-        "discovery": {"candidateCount": discovered.get("candidateCount"), "chainsChecked": discovered.get("chainsChecked"), "adapterFilesRead": discovered.get("adapterFilesRead"), "rpcChecks": discovered.get("rpcChecks"), "warnings": discovered.get("warnings", [])},
+        "discovery": {"candidateCount": discovered.get("candidateCount"), "chainsChecked": discovered.get("chainsChecked"), "adapterFilesRead": discovered.get("adapterFilesRead"), "rpcChecks": discovered.get("rpcChecks"), "chainBlockNumbers": discovered.get("chainBlockNumbers", {}), "blockHeadChecks": discovered.get("blockHeadChecks", 0), "warnings": discovered.get("warnings", [])},
         "disclaimer": "Slither findings are static-analysis signals. A clean result is not proof of safety; a finding is not confirmed until reviewed and reproduced in a controlled, non-broadcast fork environment."
     }
 
