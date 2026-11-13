@@ -6,6 +6,7 @@ import json
 import zipfile
 import os
 import re
+import sqlite3
 import time
 import uuid
 from typing import Any
@@ -77,6 +78,58 @@ CACHE: dict[str, tuple[float, Any]] = {}
 SCAN_REQUESTS: dict[str, list[float]] = {}
 SCAN_JOBS: dict[str, dict[str, Any]] = {}
 SCAN_TASKS: set[asyncio.Task] = set()
+DATABASE_PATH = os.getenv("AEGIS_DATABASE_PATH", "/data/aegis.sqlite3")
+
+
+def database_connection():
+    parent = os.path.dirname(DATABASE_PATH)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    connection = sqlite3.connect(DATABASE_PATH, timeout=10)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def persist_scan_job(job: dict[str, Any]):
+    payload = json.dumps(job, separators=(",", ":"), ensure_ascii=False)
+    with database_connection() as connection:
+        connection.execute(
+            """INSERT INTO scan_jobs(job_id, protocol_slug, status, payload, created_at, updated_at)
+               VALUES(?, ?, ?, ?, ?, ?)
+               ON CONFLICT(job_id) DO UPDATE SET
+                 status=excluded.status, payload=excluded.payload, updated_at=excluded.updated_at""",
+            (job["jobId"], job["protocolSlug"], job["status"], payload, job["createdAt"], job["updatedAt"]),
+        )
+        connection.execute("DELETE FROM scan_jobs WHERE created_at < ?", (time.time() - 30 * 86400,))
+        connection.execute("DELETE FROM scan_jobs WHERE job_id NOT IN (SELECT job_id FROM scan_jobs ORDER BY created_at DESC LIMIT 1000)")
+
+
+def initialize_database():
+    with database_connection() as connection:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS scan_jobs (
+                job_id TEXT PRIMARY KEY,
+                protocol_slug TEXT NOT NULL,
+                status TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_scan_jobs_created ON scan_jobs(created_at DESC)")
+        rows = connection.execute("SELECT payload FROM scan_jobs ORDER BY created_at DESC LIMIT 1000").fetchall()
+    for row in rows:
+        try:
+            job = json.loads(row["payload"])
+            if job.get("status") in {"queued", "running"}:
+                job.update({"status": "failed", "error": "API restarted before this scan completed. Start a new scan.", "updatedAt": time.time()})
+                persist_scan_job(job)
+            SCAN_JOBS[job["jobId"]] = job
+        except (ValueError, KeyError, TypeError):
+            continue
+
+
+initialize_database()
 
 
 def enforce_scan_rate_limit(request: Request):
@@ -836,13 +889,16 @@ async def run_protocol_scan_job(job_id: str, slug: str):
     job = SCAN_JOBS[job_id]
     job["status"] = "running"
     job["updatedAt"] = time.time()
+    persist_scan_job(job)
     try:
         result = await execute_protocol_scan(slug)
         job.update({"status": "completed", "result": result, "updatedAt": time.time()})
     except HTTPException as exc:
         job.update({"status": "failed", "error": str(exc.detail), "statusCode": exc.status_code, "updatedAt": time.time()})
     except Exception as exc:
-        job.update({"status": "failed", "error": "Unexpected analysis error: " + str(exc), "statusCode": 500, "updatedAt": time.time()})
+        job.update({"status": "failed", "error": "Unexpected analysis error: " + str(exc)[:2000], "statusCode": 500, "updatedAt": time.time()})
+    finally:
+        persist_scan_job(job)
 
 
 @app.post("/api/scans/protocol/{slug}", status_code=202)
@@ -853,12 +909,12 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
     enforce_scan_rate_limit(request)
     if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
         raise HTTPException(400, "Invalid protocol slug")
-    # Keep the in-memory job registry bounded; completed jobs are available for two hours.
+    # Durable job records are retained for 30 days; cap active in-memory work.
     now = time.time()
     for key, value in list(SCAN_JOBS.items()):
-        if now - value.get("createdAt", now) > 7200:
+        if now - value.get("createdAt", now) > 30 * 86400:
             SCAN_JOBS.pop(key, None)
-    if len(SCAN_JOBS) >= 100:
+    if sum(1 for value in SCAN_JOBS.values() if value.get("status") in {"queued", "running"}) >= 100:
         raise HTTPException(503, "Scan job capacity is full. Retry shortly.")
     if len(SCAN_TASKS) >= 2:
         raise HTTPException(429, "The static-analysis worker is busy. Retry in a moment.")
@@ -867,6 +923,7 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
         "jobId": job_id, "protocolSlug": slug, "status": "queued",
         "createdAt": now, "updatedAt": now,
     }
+    persist_scan_job(SCAN_JOBS[job_id])
     task = asyncio.create_task(run_protocol_scan_job(job_id, slug))
     SCAN_TASKS.add(task)
     task.add_done_callback(SCAN_TASKS.discard)
@@ -880,8 +937,33 @@ async def get_protocol_scan_job(job_id: str, authorization: str | None = Header(
         raise HTTPException(401, "Unauthorized")
     job = SCAN_JOBS.get(job_id)
     if not job:
+        with database_connection() as connection:
+            row = connection.execute("SELECT payload FROM scan_jobs WHERE job_id = ?", (job_id,)).fetchone()
+        if row:
+            try:
+                job = json.loads(row["payload"])
+                SCAN_JOBS[job_id] = job
+            except (ValueError, TypeError):
+                job = None
+    if not job:
         raise HTTPException(404, "Scan job not found or expired.")
     return job
+
+
+@app.get("/api/scans/jobs")
+async def list_protocol_scan_jobs(limit: int = Query(50, ge=1, le=200), authorization: str | None = Header(default=None)):
+    scan_token = os.getenv("AEGIS_SCAN_TOKEN", "")
+    if not scan_token or authorization != "Bearer " + scan_token:
+        raise HTTPException(401, "Unauthorized")
+    with database_connection() as connection:
+        rows = connection.execute("SELECT payload FROM scan_jobs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    jobs = []
+    for row in rows:
+        try:
+            jobs.append(json.loads(row["payload"]))
+        except (ValueError, TypeError):
+            continue
+    return {"items": jobs, "count": len(jobs), "retentionDays": 30}
 
 
 @app.post("/api/scans/slither")
