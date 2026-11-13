@@ -101,3 +101,28 @@ def test_auto_scan_requires_server_side_token(monkeypatch):
 def test_scan_job_status_requires_server_side_token():
     response = client.get("/api/scans/jobs/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 401
+
+
+def test_protocol_scan_runs_multiple_unique_targets_with_a_hard_cap(monkeypatch):
+    import asyncio
+    import main
+
+    items = [
+        {"chain": "ethereum", "address": "0x" + f"{i:040x}", "role": "contract", "confidence": "high"}
+        for i in range(15)
+    ]
+    items.append(dict(items[0]))
+    async def fake_discovery(slug):
+        return {"candidates": items, "candidateCount": len(items), "chainsChecked": ["ethereum"], "adapterFilesRead": 1, "rpcChecks": 15, "warnings": []}
+    seen = []
+    async def fake_scan(slug, candidate, discovered):
+        seen.append(candidate["address"])
+        return {"target": {"chain": candidate["chain"], "address": candidate["address"]}, "analysis": {"findingCount": 2}}
+    monkeypatch.setattr(main, "protocol_contract_candidates", fake_discovery)
+    monkeypatch.setattr(main, "execute_single_contract_scan", fake_scan)
+    result = asyncio.run(main.execute_protocol_scan("demo"))
+    assert result["targetsDiscovered"] == 16
+    assert result["targetsSelected"] == 12
+    assert result["targetsScanned"] == 12
+    assert result["findingCount"] == 24
+    assert len(set(seen)) == 12
