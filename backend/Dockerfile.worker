@@ -22,7 +22,7 @@ COPY worker.py .
 RUN chown -R worker:worker /app
 USER 10001
 ENV HOME=/home/worker XDG_CACHE_HOME=/tmp/.cache XDG_CONFIG_HOME=/tmp/.config
-RUN for version in 0.4.26 0.5.17 0.6.12 0.7.6 0.8.19 0.8.20 0.8.30; do solc-select install "$version"; done && solc-select use 0.8.30 && mkdir -p /tmp/aegis-aderyn-smoke && printf 'pragma solidity ^0.8.20; contract Smoke { function value() external pure returns (uint256) { return 1; } }\\n' > /tmp/aegis-aderyn-smoke/Smoke.sol && cd /tmp/aegis-aderyn-smoke && aderyn --src . --output /tmp/aegis-aderyn-smoke/report.json --skip-update-check . && test -s /tmp/aegis-aderyn-smoke/report.json && rm -rf /tmp/aegis-aderyn-smoke
+RUN for version in 0.4.26 0.5.17 0.6.12 0.7.6 0.8.19 0.8.20 0.8.30; do solc-select install "$version"; done && solc-select use 0.8.30 && mkdir -p /tmp/aegis-aderyn-smoke && echo 'pragma solidity ^0.8.20; contract Smoke { function value() external pure returns (uint256) { return 1; } }' > /tmp/aegis-aderyn-smoke/Smoke.sol && cd /tmp/aegis-aderyn-smoke && aderyn --src . --output /tmp/aegis-aderyn-smoke/report.json --skip-update-check . && test -s /tmp/aegis-aderyn-smoke/report.json && rm -rf /tmp/aegis-aderyn-smoke
 ENV SOLC_VERSION=0.8.30
 EXPOSE 8001
 CMD ["uvicorn","worker:app","--host","0.0.0.0","--port","8001"]
