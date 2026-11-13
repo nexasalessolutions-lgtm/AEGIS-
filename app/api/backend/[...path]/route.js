@@ -20,7 +20,7 @@ export async function GET(request, context) {
       method: "GET",
       headers: { accept: request.headers.get("accept") || "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(path[0] === "api" && path[1] === "protocol" && path[3] === "contracts" ? 120_000 : 30_000),
     });
     return new Response(upstream.body, {
       status: upstream.status,
