@@ -1,13 +1,13 @@
 # AEGIS API
 
-FastAPI read-only intelligence API. Run locally with `pip install -r requirements.txt` then `uvicorn main:app --reload`. Endpoints: `/health`, `/api/chains`, `/api/protocols`, `/api/protocol/{slug}`, `/api/contract/inspect?chain=ethereum&address=0x...`, `/api/protocol/{slug}/contracts`, `/api/scans/protocol/{slug}`, `/api/scans/jobs/{jobId}`, `/api/scans/jobs`, `/ready`, `/docs`.
+FastAPI read-only intelligence API with a combined Slither/Aderyn worker. Run locally with `pip install -r requirements.txt` then `uvicorn main:app --reload`. Endpoints: `/health`, `/api/chains`, `/api/protocols`, `/api/protocol/{slug}`, `/api/contract/inspect?chain=ethereum&address=0x...`, `/api/protocol/{slug}/contracts`, `/api/scans/protocol/{slug}`, `/api/scans/jobs/{jobId}`, `/api/scans/jobs`, `/ready`, `/docs`.
 
 Public RPCs are best-effort and rate-limited. Contract inspection only checks bytecode and attempts Sourcify lookup. It does not resolve proxies or prove vulnerabilities.
 
 
 Additional endpoints:
 - `GET /api/protocol/{slug}/contracts` — inspect DeFiLlama adapter source, extract address candidates, and verify deployed bytecode on supported chains.
-- `POST /api/scans/protocol/{slug}` — bounded multi-contract automatic scan: discover unique verified deployment candidates, retrieve Sourcify/Blockscout source bundles, and run Slither against up to 12 targets per protocol job. Requires the server-side scan token and is rate-limited.
+- `POST /api/scans/protocol/{slug}` — bounded multi-contract automatic scan: discover unique verified deployment candidates, retrieve Sourcify/Blockscout source bundles, and run Slither and Aderyn against up to 12 targets per protocol job. Requires the server-side scan token and is rate-limited.
 
 
 ## Durable scan records
