@@ -609,6 +609,8 @@ async def protocol_contract_candidates(slug: str):
         "adapterFilesRead": len(adapter_sources),
         "adapterFiles": [path for path, _ in adapter_sources],
         "chainsChecked": supported,
+        "chainBlockNumbers": chain_blocks,
+        "blockHeadChecks": len(chain_blocks),
         "rpcChecks": checks,
         "discoveryStatus": "verified_candidates_found" if verified else ("adapter_source_found_no_live_code" if adapter_sources else "adapter_source_not_found"),
         "sources": [
