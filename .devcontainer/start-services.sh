@@ -34,7 +34,7 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 
-echo "Building and starting the isolated API + Slither worker..."
+echo "Building and starting the isolated API + Slither/Aderyn worker..."
 docker compose up -d --build
 
 if ! curl -fsS http://127.0.0.1:8000/ready >/dev/null 2>&1; then
