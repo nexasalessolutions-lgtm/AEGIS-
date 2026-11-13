@@ -282,6 +282,13 @@ async def capabilities():
         "safety": "Live-chain access is read-only. Static-analysis signals are not confirmed vulnerabilities. Fork simulations do not by themselves prove live exploitability.",
     }
 
+def has_positive_tvl(value: Any) -> bool:
+    try:
+        return float(value or 0) > 0
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 @app.get("/api/protocols")
 async def protocols(
     chain: str | None = None,
@@ -303,7 +310,7 @@ async def protocols(
             items.append({
                 "name": item.get("name"), "slug": item.get("slug"),
                 "category": item.get("category"), "chains": supported,
-                "tvl": item.get("tvl"), "active": float(item.get("tvl") or 0) > 0, "url": item.get("url"),
+                "tvl": item.get("tvl"), "active": has_positive_tvl(item.get("tvl")), "url": item.get("url"),
                 "symbol": item.get("symbol"), "chainTvls": item.get("chainTvls", {}),
             })
         items.sort(key=lambda x: float(x.get("tvl") or 0), reverse=True)
