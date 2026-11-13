@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const API = process.env.AEGIS_API_URL || "https://aegis-api-v6-production.up.railway.app";
+const API = process.env.AEGIS_INTERNAL_API_URL || "http://127.0.0.1:8000";
 
 export async function POST(request, context) {
   const token = process.env.AEGIS_SCAN_TOKEN;

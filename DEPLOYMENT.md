@@ -1,39 +1,43 @@
-# Production deployment
+# GitHub-only development and preview
 
-## Hosted services
-- Vercel dashboard: https://aegis-defi-intelligence.vercel.app
-- Railway FastAPI gateway: https://aegis-api-v6-production.up.railway.app
-- Private Slither worker: Railway service `aegis-slither-runner-v5`; no public domain.
+AEGIS is developed and previewed in GitHub Codespaces. This repository does not require an external application host for the interactive development preview.
 
-## Railway API gateway
-- Service: `aegis-api-v6`
-- Repository: `nexasalessolutions-lgtm/AEGIS-`, branch `main`
-- Root directory: `backend`
-- Dockerfile: `Dockerfile`
-- Health check: `/health`
-- Railway container port: `8080`
-- Variables: `CORS_ORIGINS`, `AEGIS_WORKER_URL`, `AEGIS_WORKER_TOKEN`, `AEGIS_SCAN_TOKEN`.
+## Start
 
-## Slither worker
-- Service: `aegis-slither-runner-v5`
-- Root directory: `backend`
-- Dockerfile: `Dockerfile.worker`
-- Private endpoint: `aegis-slither-worker-v5.railway.internal:8001`
-- Health check: `/health`
-- `PORT=8001`
-- `AEGIS_WORKER_TOKEN` matches the internal token on the API service.
-- Keep the worker private. Do not add a public domain.
+1. Open [Create an AEGIS Codespace](https://codespaces.new/nexasalessolutions-lgtm/AEGIS-?ref=github-only-build).
+2. Wait for the dev container to finish creating.
+3. The post-start script builds and starts the local FastAPI API and isolated Slither worker, then launches Next.js.
+4. Open the forwarded port labelled **AEGIS dashboard preview** (3000). Keep its visibility private.
 
-## Scan endpoints
-- `GET /api/worker/health` — reports private worker status, Slither version and Solidity compiler version.
-- `POST /api/scans/slither` — optional ZIP upload, authenticated by the server-side `AEGIS_SCAN_TOKEN`.
-- `POST /api/scans/protocol/{slug}` — starts automatic contract discovery, verified-source retrieval and Slither analysis; returns HTTP 202 with a job ID.
-- `GET /api/scans/jobs/{jobId}` — polls an automatic scan job.
+## Runtime topology
 
-The worker enforces a 20 MB upload cap, 100 MB expanded archive cap, 500-file cap, path traversal/symlink checks, serialized execution and a 180-second timeout. It invokes a fixed Slither command. Static analysis does not prove exploitability.
+- Next.js dashboard: port 3000.
+- FastAPI gateway: port 8000.
+- Private Slither worker: internal Docker Compose service on port 8001; it is not published to the internet.
+- API-to-worker communication uses the internal Compose network.
+- The browser talks to the API through a same-origin Next.js proxy.
+- Random per-Codespace tokens are generated in the ignored `.env` file.
 
-## Secrets
-The API scan token and internal worker token are stored in Railway variables. They are not committed to Git or embedded in the browser bundle. The Vercel server-side scan proxy stores `AEGIS_SCAN_TOKEN` as a sensitive project environment variable and forwards authenticated requests to the Railway API. The dashboard never asks the user to copy a token. The internal worker token is stored only in Railway service variables and must never be exposed to the browser. Automatic scan jobs are currently held in API-process memory and limited to two concurrent jobs; a Railway restart loses active and recent job state until a persistent queue/database is added.
+## Restart and diagnostics
 
-## Remaining production requirements
-Persistent scan queue, durable findings storage, multi-user authentication/tenancy, audit logs, backups, report signing/export, Aderyn/Mythril and protocol-specific Foundry/Anvil reproduction still require implementation and validation. No real transaction signing or broadcasting is supported.
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=100 api slither-worker
+tail -n 100 .aegis-logs/next.log
+```
+
+Health checks:
+- `http://localhost:3000`
+- `http://localhost:8000/health`
+- `http://localhost:8000/api/worker/health`
+
+## Important limits
+
+A Codespace is a development environment, not a permanent production server. It can stop when idle, and its compute/storage are subject to GitHub quotas. A forwarded preview URL works only while the Codespace is running and the port remains forwarded. GitHub Pages cannot host the FastAPI API or execute native security tools.
+
+The scan queue is currently in-memory. Restarting the API loses active and recent jobs. Do not claim durable background processing until a persistent queue and database have been implemented and tested.
+
+## Security
+
+Keep forwarded ports private. Never expose the worker publicly. Never commit generated `.env` tokens or RPC credentials. Live-chain operations remain read-only. Static-analysis output and fork tests are evidence requiring review, not proof of exploitability.

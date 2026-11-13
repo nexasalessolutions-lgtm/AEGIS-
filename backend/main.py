@@ -573,7 +573,7 @@ async def inspect_contract(chain: str, address: str):
 
 @app.get("/api/worker/health")
 async def worker_health():
-    worker_url = os.getenv("AEGIS_WORKER_URL", "http://aegis-slither-worker-v3.railway.internal:8001")
+    worker_url = os.getenv("AEGIS_WORKER_URL", "http://slither-worker:8001")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(worker_url + "/health")
@@ -777,7 +777,7 @@ async def queue_slither_scan(request: Request, file: UploadFile = File(...), aut
     data = await file.read(20 * 1024 * 1024 + 1)
     if len(data) > 20 * 1024 * 1024:
         raise HTTPException(413, "Archive exceeds 20 MB limit")
-    worker_url = os.getenv("AEGIS_WORKER_URL", "http://aegis-slither-worker.railway.internal:8001")
+    worker_url = os.getenv("AEGIS_WORKER_URL", "http://slither-worker:8001")
     worker_token = os.getenv("AEGIS_WORKER_TOKEN", "")
     if not worker_token:
         raise HTTPException(503, "Static-analysis worker credentials are not configured")

@@ -1,7 +1,7 @@
 name: AEGIS CI
 on:
   push:
-    branches: [main]
+    branches: [main, github-only-build]
   pull_request:
     branches: [main]
 permissions:

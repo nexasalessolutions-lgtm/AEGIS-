@@ -2,41 +2,62 @@
 
 Read-only DeFi protocol intelligence and smart-contract research workbench.
 
-## Live app
-- Dashboard: https://aegis-defi-intelligence.vercel.app
-- API: https://aegis-api-v6-production.up.railway.app
-- Health: https://aegis-api-v6-production.up.railway.app/health
-- Worker health (through API): https://aegis-api-v6-production.up.railway.app/api/worker/health
+## Launch in GitHub Codespaces
 
-## Implemented
+[**Create an AEGIS Codespace**](https://codespaces.new/nexasalessolutions-lgtm/AEGIS-?ref=github-only-build)
+
+The repository includes a Codespaces development container. On first creation it installs Node dependencies, starts the local FastAPI gateway and isolated Slither worker with Docker Compose, and launches the Next.js dashboard. Open the forwarded **AEGIS dashboard preview** port (3000) to use the app.
+
+- Dashboard: forwarded Codespaces port 3000 (private by default).
+- API: forwarded Codespaces port 8000 (private by default).
+- API and Slither worker run inside the Codespace; they are not permanent public services.
+- Codespaces compute and storage are subject to GitHub plan quotas and usage limits.
+- The generated `.env` contains per-Codespace random scan tokens and is never committed.
+
+## Implemented repository capabilities
+
 - DeFiLlama protocol registry, TVL metadata, chain/category/search filters and protocol detail.
 - Address candidate extraction with explicit unverified attribution.
 - Read-only EVM inspection at a pinned block: bytecode, balance, nonce and EIP-1967 implementation/admin/beacon slots.
 - Sourcify verified source, ABI and proxy-resolution metadata lookup.
-- One-click protocol-to-contract discovery using DeFiLlama adapter source, public RPC bytecode verification and chain attribution.
-- One-click automatic source retrieval from Sourcify, with Blockscout fallback where supported, followed by asynchronous private Slither analysis; the browser never receives scan credentials.
-- Optional ZIP upload to the private Slither worker with archive validation, serialized execution and bounded runtime.
-- Worker health endpoint reports Slither and solc versions.
+- Protocol-to-contract discovery using DeFiLlama adapter source, public RPC bytecode verification and chain attribution.
+- Source retrieval from Sourcify, with supported Blockscout fallback, followed by Slither analysis in a private worker.
+- ZIP upload to the Slither worker with archive validation, serialized execution and bounded runtime.
 - Foundry pinned-block read-only baseline harness.
 - GitHub Actions CI for backend tests, frontend build, dependency audit and container builds.
 
-## Repository
-- `app/`: Next.js dashboard.
-- `backend/main.py`: FastAPI gateway, protocol/contract intelligence, worker health and authenticated Slither forwarding.
-- `backend/worker.py`: private Slither worker.
+## Architecture
+
+- `app/`: Next.js dashboard and same-origin API proxy.
+- `backend/main.py`: FastAPI gateway, protocol/contract intelligence and authenticated Slither forwarding.
+- `backend/worker.py`: isolated Slither worker.
 - `backend/Dockerfile`, `backend/Dockerfile.worker`: API and worker images.
-- `foundry.toml`, `test/ForkBaseline.t.sol`: pinned fork baseline.
 - `docker-compose.yml`: local API + isolated worker topology.
-- `.github/workflows/ci.yml`: CI checks.
+- `.devcontainer/`: GitHub Codespaces setup and startup.
+- `.github/workflows/ci.yml`: automated checks.
 
 ## Local development
-Frontend: `npm install && npm run dev`.
 
-API: `cd backend && pip install -r requirements-dev.txt && uvicorn main:app --reload`.
+In a Codespace, services are started automatically. To restart the API and worker:
 
-Worker: set `AEGIS_SCAN_TOKEN` and `AEGIS_WORKER_TOKEN` to separate strong secrets, then run `docker compose up --build`.
+```bash
+docker compose up -d --build
+```
+
+To start the dashboard manually:
+
+```bash
+npm run dev -- --hostname 0.0.0.0
+```
+
+API health: `http://localhost:8000/health`.
 
 ## Evidence policy and remaining work
+
 Address candidates are not ownership claims. Verified source is not proof of correctness. Slither output is a static-analysis signal, not a confirmed vulnerability. Fork simulations at a pinned block do not alone prove current live exploitability.
 
-The current scan-job registry is in-memory and jobs are lost if the API process restarts. Persistent queue, durable findings DB, complete protocol ownership attribution, full dependency graph, Aderyn/Mythril, protocol-specific fork reproduction, audit logs, multi-user tenancy and report signing/export are not yet production-enabled. Live-chain access remains read-only; no wallet signing, transaction submission or fund movement.
+The scan-job registry is currently in-memory and jobs are lost if the API process restarts. Persistent queue, durable findings database, complete protocol ownership attribution, full dependency graph, Aderyn/Mythril, protocol-specific fork reproduction, audit logs, multi-user tenancy and report signing/export are not yet production-enabled. Live-chain access remains read-only; no wallet signing, transaction submission or fund movement.
+
+## Usage and security
+
+Do not expose the API or worker ports publicly. Keep Codespaces ports private. Never commit `.env`, RPC credentials or scan tokens. Run contract-source analysis in the isolated worker; treat all source archives and tool output as untrusted.

@@ -4,7 +4,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
-      CORS_ORIGINS: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       AEGIS_SCAN_TOKEN: ${AEGIS_SCAN_TOKEN:?Set AEGIS_SCAN_TOKEN}
       AEGIS_WORKER_TOKEN: ${AEGIS_WORKER_TOKEN:?Set AEGIS_WORKER_TOKEN}
       AEGIS_WORKER_URL: http://slither-worker:8001
