@@ -7,7 +7,7 @@ TOKEN = os.getenv("AEGIS_WORKER_TOKEN", "")
 MAX_ARCHIVE, MAX_EXPANDED, MAX_FILES, TIMEOUT = 20*1024*1024, 100*1024*1024, 500, 180
 SCAN_LOCK = asyncio.Lock()
 
-SUPPORTED_SOLC_VERSIONS = ("0.4.26", "0.5.17", "0.6.12", "0.7.6", "0.8.30")
+SUPPORTED_SOLC_VERSIONS = ("0.4.26", "0.5.17", "0.6.12", "0.7.6", "0.8.19", "0.8.20", "0.8.30")
 
 def version_tuple(value: str):
     parts = value.split(".")
