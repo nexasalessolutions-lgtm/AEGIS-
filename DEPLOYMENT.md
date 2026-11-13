@@ -4,7 +4,7 @@ AEGIS is developed and previewed in GitHub Codespaces. This repository does not 
 
 ## Start
 
-1. Open [Create an AEGIS Codespace](https://codespaces.new/nexasalessolutions-lgtm/AEGIS-?ref=github-only-build).
+1. Open [Create an AEGIS Codespace](https://codespaces.new/nexasalessolutions-lgtm/AEGIS-?ref=main).
 2. Wait for the dev container to finish creating.
 3. The post-start script builds and starts the local FastAPI API and isolated Slither worker, then launches Next.js.
 4. Open the forwarded port labelled **AEGIS dashboard preview** (3000). Keep its visibility private.
