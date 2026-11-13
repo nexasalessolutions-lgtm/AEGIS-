@@ -1,4 +1,4 @@
-import asyncio, json, os, shutil, stat, subprocess, tempfile, zipfile, io
+import asyncio, json, os, re, shutil, stat, subprocess, tempfile, zipfile, io
 from pathlib import Path, PurePosixPath
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 
@@ -6,6 +6,65 @@ app = FastAPI(title="AEGIS Isolated Static Analysis Worker", version="0.1.0")
 TOKEN = os.getenv("AEGIS_WORKER_TOKEN", "")
 MAX_ARCHIVE, MAX_EXPANDED, MAX_FILES, TIMEOUT = 20*1024*1024, 100*1024*1024, 500, 180
 SCAN_LOCK = asyncio.Lock()
+
+SUPPORTED_SOLC_VERSIONS = ("0.4.26", "0.5.17", "0.6.12", "0.7.6", "0.8.30")
+
+def version_tuple(value: str):
+    parts = value.split(".")
+    return tuple(int(x) for x in (parts + ["0", "0"])[:3])
+
+def pragma_accepts(expression: str, candidate: str) -> bool:
+    current = version_tuple(candidate)
+    for alternative in expression.split("||"):
+        tokens = re.findall(r"(\\^|~|>=|<=|>|<|=)?\\s*(\\d+\\.\\d+(?:\\.\\d+)?)", alternative)
+        if not tokens:
+            continue
+        accepted = True
+        for operator, raw in tokens:
+            target = version_tuple(raw)
+            if operator == "^":
+                if current < target:
+                    accepted = False
+                upper = (target[0] + 1, 0, 0) if target[0] else ((0, target[1] + 1, 0) if target[1] else (0, 0, target[2] + 1))
+                if current >= upper:
+                    accepted = False
+            elif operator == "~":
+                if current < target or current >= (target[0], target[1] + 1, 0):
+                    accepted = False
+            elif operator == ">=" and current < target:
+                accepted = False
+            elif operator == "<=" and current > target:
+                accepted = False
+            elif operator == ">" and current <= target:
+                accepted = False
+            elif operator == "<" and current >= target:
+                accepted = False
+            elif operator in ("", "=") and current != target:
+                accepted = False
+        if accepted:
+            return True
+    return False
+
+def choose_compiler(project: Path):
+    pragmas = []
+    for source in project.rglob("*.sol"):
+        try:
+            text = source.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        pragmas.extend(re.findall(r"pragma\\s+solidity\\s+([^;]+);", text))
+    hint_file = project / "aegis-compiler-version.txt"
+    if hint_file.is_file():
+        hint = re.search(r"\\d+\\.\\d+\\.\\d+", hint_file.read_text(errors="ignore"))
+        if hint and hint.group(0) in SUPPORTED_SOLC_VERSIONS:
+            return hint.group(0), pragmas
+    for version in reversed(SUPPORTED_SOLC_VERSIONS):
+        if all(pragma_accepts(expression, version) for expression in pragmas):
+            return version, pragmas
+    if not pragmas:
+        return "0.8.30", pragmas
+    return None, pragmas
+
 
 @app.get("/health")
 async def health():
@@ -57,15 +116,53 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
         with tempfile.TemporaryDirectory(prefix="aegis-slither-") as tmp:
             project=Path(tmp)/"project"; project.mkdir()
             extracted=extract_sources(data,project)
+            compiler_version, pragmas = choose_compiler(project)
+            if not compiler_version:
+                raise HTTPException(
+                    422,
+                    "No preinstalled Solidity compiler satisfies every source pragma. "
+                    + "Detected pragmas: " + "; ".join(pragmas[:20])
+                    + ". Installed compilers: " + ", ".join(SUPPORTED_SOLC_VERSIONS),
+                )
+            scan_env = {
+                "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+                "HOME": os.environ.get("HOME", "/home/worker"),
+                "TMPDIR": "/tmp",
+                "SOLC_VERSION": compiler_version,
+            }
             try:
-                proc=await asyncio.to_thread(subprocess.run,["slither",".","--json","-"],cwd=project,capture_output=True,text=True,timeout=TIMEOUT,check=False,env={"PATH":os.environ.get("PATH","/usr/local/bin:/usr/bin:/bin"),"HOME":os.environ.get("HOME", "/home/worker"), "TMPDIR":"/tmp"})
-            except subprocess.TimeoutExpired as exc: raise HTTPException(408,"Static analysis exceeded 180 seconds") from exc
-            payload=None
-            for candidate in (proc.stdout,proc.stderr):
-                try: payload=json.loads(candidate); break
-                except Exception: pass
-            if payload is None: raise HTTPException(422,"Slither returned no parseable JSON; check compiler compatibility")
+                proc=await asyncio.to_thread(
+                    subprocess.run,
+                    ["slither", ".", "--json", "-"],
+                    cwd=project, capture_output=True, text=True,
+                    timeout=TIMEOUT, check=False, env=scan_env,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise HTTPException(408, "Static analysis exceeded 180 seconds") from exc
+            payload = None
+            decoder = json.JSONDecoder()
+            for stream in (proc.stdout or "", proc.stderr or ""):
+                for match in re.finditer(r"\\{", stream):
+                    try:
+                        candidate, _ = decoder.raw_decode(stream[match.start():])
+                        if isinstance(candidate, dict) and ("results" in candidate or "success" in candidate):
+                            payload = candidate
+                            break
+                    except (ValueError, json.JSONDecodeError):
+                        continue
+                if payload is not None:
+                    break
+            if payload is None:
+                diagnostics = ((proc.stderr or "") + "\\n" + (proc.stdout or "")).strip()
+                diagnostics = diagnostics[-6000:] if diagnostics else "Slither produced no stdout or stderr."
+                raise HTTPException(
+                    422,
+                    "Slither could not produce a JSON report using solc "
+                    + compiler_version + ". Detected pragmas: "
+                    + ("; ".join(pragmas[:12]) or "none")
+                    + ". Compiler diagnostics: " + diagnostics,
+                )
             detectors=payload.get("results",{}).get("detectors",[])
             findings=[{"id":f"SLITHER-{i+1:04d}","check":x.get("check"),"impact":x.get("impact"),"confidence":x.get("confidence"),"description":x.get("description"),"firstElement":(x.get("elements") or [{}])[0].get("source_mapping",{}).get("filename_relative")} for i,x in enumerate(detectors)]
-            return {"engine":"Slither","status":"completed" if proc.returncode in (0,1) else "completed_with_errors","exitCode":proc.returncode,"sourceFiles":len(list(project.rglob("*.sol"))),"archiveEntriesExtracted":extracted,"findingCount":len(findings),"findings":findings,"stderr":proc.stderr[-8000:],"classification":"STATIC_ANALYSIS_SIGNAL","disclaimer":"Static-analysis output is a review signal, not a confirmed vulnerability or proof of live exploitability."}
+            return {"engine":"Slither","status":"completed" if proc.returncode in (0,1) else "completed_with_errors","exitCode":proc.returncode,"compilerVersion":compiler_version,"detectedPragmas":pragmas,"sourceFiles":len(list(project.rglob("*.sol"))),"archiveEntriesExtracted":extracted,"findingCount":len(findings),"findings":findings,"stderr":proc.stderr[-8000:],"classification":"STATIC_ANALYSIS_SIGNAL","disclaimer":"Static-analysis output is a review signal, not a confirmed vulnerability or proof of live exploitability."}
     
