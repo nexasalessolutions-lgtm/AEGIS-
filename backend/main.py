@@ -918,8 +918,10 @@ async def execute_single_contract_scan(slug: str, candidate: dict[str, Any], can
     }
 
 
-async def execute_protocol_scan(slug: str) -> dict[str, Any]:
+async def execute_protocol_scan(slug: str, progress_callback=None) -> dict[str, Any]:
     """Run bounded static analysis across the discovered on-chain contract set."""
+    if progress_callback:
+        progress_callback({"stage": "contract_discovery", "completed": 0, "total": 0})
     discovered = await protocol_contract_candidates(slug)
     candidates = discovered.get("candidates") or []
     if not candidates:
@@ -940,17 +942,29 @@ async def execute_protocol_scan(slug: str) -> dict[str, Any]:
     if not unique:
         raise HTTPException(422, "No supported, on-chain-verified contract targets were available.")
     semaphore = asyncio.Semaphore(2)
+    progress_state = {"stage": "static_analysis", "completed": 0, "total": len(unique), "currentTarget": None}
+    if progress_callback:
+        progress_callback(dict(progress_state))
     async def scan_one(item: dict[str, Any]) -> dict[str, Any]:
         async with semaphore:
+            progress_state["currentTarget"] = {"chain": item.get("chain"), "address": item.get("address")}
+            if progress_callback:
+                progress_callback(dict(progress_state))
             try:
                 return await execute_single_contract_scan(slug, item, discovered)
             except HTTPException as exc:
                 return {"target": {"chain": item.get("chain"), "address": item.get("address"), "role": item.get("role")}, "status": "unavailable", "error": str(exc.detail), "statusCode": exc.status_code}
             except Exception as exc:
                 return {"target": {"chain": item.get("chain"), "address": item.get("address"), "role": item.get("role")}, "status": "error", "error": str(exc)[:1000]}
+            finally:
+                progress_state["completed"] += 1
+                if progress_callback:
+                    progress_callback(dict(progress_state))
     results = await asyncio.gather(*(scan_one(item) for item in unique))
     completed = [item for item in results if item.get("analysis")]
     finding_count = sum(int(item.get("analysis", {}).get("findingCount") or 0) for item in completed)
+    if progress_callback:
+        progress_callback({"stage": "completed", "completed": len(unique), "total": len(unique), "currentTarget": None})
     return {
         "protocolSlug": slug,
         "targetsDiscovered": len(candidates),
@@ -981,8 +995,12 @@ async def run_protocol_scan_job(job_id: str, slug: str):
     job["status"] = "running"
     job["updatedAt"] = time.time()
     persist_scan_job(job)
+    def update_progress(progress: dict[str, Any]):
+        job["progress"] = progress
+        job["updatedAt"] = time.time()
+        persist_scan_job(job)
     try:
-        result = await execute_protocol_scan(slug)
+        result = await execute_protocol_scan(slug, progress_callback=update_progress)
         job.update({"status": "completed", "result": result, "updatedAt": time.time()})
     except HTTPException as exc:
         job.update({"status": "failed", "error": str(exc.detail), "statusCode": exc.status_code, "updatedAt": time.time()})
