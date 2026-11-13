@@ -210,7 +210,7 @@ async def capabilities():
         ],
         "staticAnalysis": ["Slither worker implementation is deployed separately"],
         "notImplemented": [
-            "Persistent scan job queue and findings database",
+            "Durable scan job history is stored in SQLite; distributed persistent execution queue is not implemented",
             "Full contract ownership attribution and all proxy standards",
             "Aderyn and Mythril execution",
             "Foundry/Anvil protocol-specific fork reproduction",
