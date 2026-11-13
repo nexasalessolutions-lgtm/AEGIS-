@@ -138,7 +138,7 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
             payload = None
             decoder = json.JSONDecoder()
             for stream in (proc.stdout or "", proc.stderr or ""):
-                for match in re.finditer(r"\\{", stream):
+                for match in re.finditer(r"\{", stream):
                     try:
                         candidate, _ = decoder.raw_decode(stream[match.start():])
                         if isinstance(candidate, dict) and ("results" in candidate or "success" in candidate):
@@ -149,7 +149,7 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
                 if payload is not None:
                     break
             if payload is None:
-                diagnostics = ((proc.stderr or "") + "\\n" + (proc.stdout or "")).strip()
+                diagnostics = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
                 diagnostics = diagnostics[-6000:] if diagnostics else "Slither produced no stdout or stderr."
                 raise HTTPException(
                     422,
