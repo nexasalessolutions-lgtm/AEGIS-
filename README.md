@@ -4,7 +4,7 @@ Read-only DeFi protocol intelligence and smart-contract research workbench.
 
 ## Launch in GitHub Codespaces
 
-[**Create an AEGIS Codespace**](https://codespaces.new/nexasalessolutions-lgtm/AEGIS-?ref=github-only-build)
+[**Create an AEGIS Codespace**](https://codespaces.new/nexasalessolutions-lgtm/AEGIS-?ref=main)
 
 The repository includes a Codespaces development container. On first creation it installs Node dependencies, starts the local FastAPI gateway and isolated Slither worker with Docker Compose, and launches the Next.js dashboard. Open the forwarded **AEGIS dashboard preview** port (3000) to use the app.
 
