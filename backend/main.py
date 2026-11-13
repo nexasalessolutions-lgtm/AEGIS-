@@ -857,7 +857,13 @@ async def execute_single_contract_scan(slug: str, candidate: dict[str, Any], can
                             source_files[str(path)] = value
             if source_files:
                 source_provenance = "Blockscout verified contract source"
-                verified = {"match": "blockscout_verified", **verified}
+                verified = {
+                    **verified,
+                    "match": "blockscout_verified",
+                    "abi": explorer.get("abi") or explorer.get("ABI"),
+                    "compilerVersion": explorer.get("compiler_version") or explorer.get("compilerVersion"),
+                    "compiler": explorer.get("compiler"),
+                }
         except httpx.HTTPError:
             pass
 
