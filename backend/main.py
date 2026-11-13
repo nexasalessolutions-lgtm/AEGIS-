@@ -800,7 +800,8 @@ async def protocol_live_snapshot(slug: str, limit: int = Query(12, ge=1, le=12))
     return {
         "protocolSlug": slug,
         "snapshotAt": time.time(),
-        "blockConsistency": "Each contract is pinned to the latest block observed for its own chain; cross-chain blocks are not simultaneous.",
+        "blockConsistency": "All inspected contracts on a given chain use the same pinned block; cross-chain blocks are not simultaneous.",
+        "chainBlockNumbers": snapshot_heads,
         "discoveredCandidates": discovered.get("candidateCount", 0),
         "targetsInspected": len(results),
         "targetsAvailable": len(available),
