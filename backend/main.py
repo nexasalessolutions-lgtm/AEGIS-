@@ -130,8 +130,13 @@ def initialize_database():
     for row in rows:
         try:
             job = json.loads(row["payload"])
-            if job.get("status") in {"queued", "running"}:
-                job.update({"status": "failed", "error": "API restarted before this scan completed. Start a new scan.", "updatedAt": time.time()})
+            if job.get("status") == "running":
+                job.update({
+                    "status": "queued",
+                    "restartCount": int(job.get("restartCount", 0)) + 1,
+                    "recoveryNote": "Recovered after API restart; scan will be re-run from the beginning.",
+                    "updatedAt": time.time(),
+                })
                 persist_scan_job(job)
             SCAN_JOBS[job["jobId"]] = job
         except (ValueError, KeyError, TypeError):
@@ -892,6 +897,17 @@ async def execute_protocol_scan(slug: str) -> dict[str, Any]:
         "discovery": {"candidateCount": discovered.get("candidateCount"), "chainsChecked": discovered.get("chainsChecked"), "adapterFilesRead": discovered.get("adapterFilesRead"), "rpcChecks": discovered.get("rpcChecks"), "warnings": discovered.get("warnings", [])},
         "disclaimer": "Slither findings are static-analysis signals. A clean result is not proof of safety; a finding is not confirmed until reviewed and reproduced in a controlled, non-broadcast fork environment."
     }
+
+
+@app.on_event("startup")
+async def resume_queued_scan_jobs():
+    """Resume durable queued jobs after a process restart (single API instance)."""
+    for job in sorted(SCAN_JOBS.values(), key=lambda item: item.get("createdAt", 0)):
+        if job.get("status") != "queued" or len(SCAN_TASKS) >= 2:
+            continue
+        task = asyncio.create_task(run_protocol_scan_job(job["jobId"], job["protocolSlug"]))
+        SCAN_TASKS.add(task)
+        task.add_done_callback(SCAN_TASKS.discard)
 
 
 async def run_protocol_scan_job(job_id: str, slug: str):
