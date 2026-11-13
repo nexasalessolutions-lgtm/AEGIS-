@@ -107,7 +107,7 @@ async def get_json(url: str, *, params: dict[str, str] | None = None, cache_key:
 
 async def rpc_call(chain: str, method: str, params: list[Any]) -> Any:
     last_error = "No RPC endpoints configured"
-    async with httpx.AsyncClient(timeout=8) as client:
+    async with httpx.AsyncClient(timeout=6) as client:
         for endpoint in RPCS[chain]:
             try:
                 response = await client.post(
@@ -408,7 +408,7 @@ async def protocol_contract_candidates(slug: str):
 
     # Verify candidates against chain bytecode. Unknown-chain candidates are checked against
     # the protocol's advertised EVM chains, with bounded concurrency and a hard request cap.
-    semaphore = asyncio.Semaphore(8)
+    semaphore = asyncio.Semaphore(12)
     checks = 0
     async def verify_candidate(candidate: dict[str, Any]):
         nonlocal checks
@@ -419,7 +419,7 @@ async def protocol_contract_candidates(slug: str):
         for chain_key in target_chains:
             async with semaphore:
                 checks += 1
-                if checks > 100:
+                if checks > 60:
                     return found
                 try:
                     code = await rpc_call(chain_key, "eth_getCode", [candidate["address"], "latest"])
