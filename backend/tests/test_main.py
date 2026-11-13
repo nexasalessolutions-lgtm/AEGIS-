@@ -126,3 +126,23 @@ def test_protocol_scan_runs_multiple_unique_targets_with_a_hard_cap(monkeypatch)
     assert result["targetsScanned"] == 12
     assert result["findingCount"] == 24
     assert len(set(seen)) == 12
+
+
+def test_protocol_snapshot_returns_pinned_block_contract_evidence(monkeypatch):
+    import asyncio
+    import main
+
+    async def fake_discovery(slug):
+        return {"candidates": [
+            {"chain": "ethereum", "address": "0x" + "1" * 40, "role": "core", "confidence": "high"},
+            {"chain": "base", "address": "0x" + "2" * 40, "role": "vault", "confidence": "high"},
+        ], "candidateCount": 2}
+    async def fake_inspect(chain, address):
+        return {"chain": chain, "address": address, "hasCode": True, "blockNumber": 123, "bytecode": "0x6000", "bytecodeBytes": 2, "verifiedSource": {"abi": []}}
+    monkeypatch.setattr(main, "protocol_contract_candidates", fake_discovery)
+    monkeypatch.setattr(main, "inspect_contract", fake_inspect)
+    result = asyncio.run(main.protocol_live_snapshot("demo", 12))
+    assert result["targetsInspected"] == 2
+    assert result["targetsAvailable"] == 2
+    assert {item["chain"] for item in result["targets"]} == {"ethereum", "base"}
+    assert all(item["blockNumber"] == 123 for item in result["targets"])
