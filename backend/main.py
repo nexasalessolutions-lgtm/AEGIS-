@@ -771,7 +771,7 @@ async def inspect_contract(chain: str, address: str, block_number: int | None = 
 
 
 @app.get("/api/protocol/{slug}/snapshot")
-async def protocol_live_snapshot(slug: str, limit: int = Query(12, ge=1, le=12)):
+async def protocol_live_snapshot(slug: str, limit: int = Query(12, ge=1, le=50)):
     """Collect pinned-block, read-only state and verification evidence for discovered contracts."""
     if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
         raise HTTPException(400, "Invalid protocol slug")
