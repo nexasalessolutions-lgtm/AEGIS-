@@ -246,11 +246,11 @@ async def capabilities():
             "Sourcify verified-source and proxy metadata lookup",
             "Protocol address candidate extraction",
         ],
-        "staticAnalysis": ["Slither worker implementation is deployed separately"],
+        "staticAnalysis": ["Slither", "Aderyn 0.6.8 (combined source-bundle analysis in the isolated worker)"],
         "notImplemented": [
             "SQLite-backed scan queue resumes jobs after a single-instance API restart; distributed multi-instance scheduling is not implemented",
             "Full contract ownership attribution and all proxy standards",
-            "Aderyn and Mythril execution",
+            "Mythril execution",
             "Foundry/Anvil protocol-specific fork reproduction",
             "Multi-user identity, tenancy, audit log and report signing",
         ],
