@@ -123,12 +123,12 @@ def test_protocol_scan_runs_multiple_unique_targets_with_a_hard_cap(monkeypatch)
     progress_updates = []
     result = asyncio.run(main.execute_protocol_scan("demo", progress_callback=progress_updates.append))
     assert progress_updates[-1]["stage"] == "completed"
-    assert progress_updates[-1]["completed"] == 12
+    assert progress_updates[-1]["completed"] == 15
     assert result["targetsDiscovered"] == 16
-    assert result["targetsSelected"] == 12
-    assert result["targetsScanned"] == 12
-    assert result["findingCount"] == 24
-    assert len(set(seen)) == 12
+    assert result["targetsSelected"] == 15
+    assert result["targetsScanned"] == 15
+    assert result["findingCount"] == 30
+    assert len(set(seen)) == 15
 
 
 def test_protocol_snapshot_returns_pinned_block_contract_evidence(monkeypatch):
