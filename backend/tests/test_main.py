@@ -167,7 +167,7 @@ def test_scan_job_persistence_round_trip(tmp_path, monkeypatch):
     assert main.SCAN_JOBS[job["jobId"]]["result"]["findingCount"] == 3
 
 
-def test_interrupted_scan_is_marked_failed_after_restart(tmp_path, monkeypatch):
+def test_interrupted_scan_is_requeued_after_restart(tmp_path, monkeypatch):
     import main
 
     monkeypatch.setattr(main, "DATABASE_PATH", str(tmp_path / "restart.sqlite3"))
@@ -183,5 +183,5 @@ def test_interrupted_scan_is_marked_failed_after_restart(tmp_path, monkeypatch):
     main.SCAN_JOBS.clear()
     main.initialize_database()
     restored = main.SCAN_JOBS[job["jobId"]]
-    assert restored["status"] == "failed"
-    assert "restarted" in restored["error"]
+    assert restored["status"] == "queued"
+    assert "Recovered after API restart" in restored["recoveryNote"]
