@@ -45,10 +45,7 @@ if ! curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
   done
 fi
 
-if ! curl -fsS http://127.0.0.1:3000 >/dev/null 2>&1; then
-  echo "Starting the Next.js dashboard..."
-  nohup npm run dev -- --hostname 0.0.0.0 > .aegis-logs/next.log 2>&1 < /dev/null &
-fi
+bash .devcontainer/start-dashboard.sh
 
 echo
 echo "AEGIS services requested."
