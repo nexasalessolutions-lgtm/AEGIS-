@@ -23,6 +23,7 @@ The repository includes a Codespaces development container. On first creation it
 - Protocol-to-contract discovery using DeFiLlama adapter source, public RPC bytecode verification and chain attribution.
 - Source retrieval from Sourcify, with supported Blockscout fallback, followed by Slither analysis in a private worker.
 - ZIP upload to the Slither worker with archive validation, serialized execution and bounded runtime.
+- SQLite-backed scan job/result history with a 30-day retention policy and restart recovery for interrupted jobs.
 - Foundry pinned-block read-only baseline harness.
 - GitHub Actions CI for backend tests, frontend build, dependency audit and container builds.
 
@@ -56,7 +57,7 @@ API health: `http://localhost:8000/health`.
 
 Address candidates are not ownership claims. Verified source is not proof of correctness. Slither output is a static-analysis signal, not a confirmed vulnerability. Fork simulations at a pinned block do not alone prove current live exploitability.
 
-The scan-job registry is currently in-memory and jobs are lost if the API process restarts. Persistent queue, durable findings database, complete protocol ownership attribution, full dependency graph, Aderyn/Mythril, protocol-specific fork reproduction, audit logs, multi-user tenancy and report signing/export are not yet production-enabled. Live-chain access remains read-only; no wallet signing, transaction submission or fund movement.
+Scan job records and complete JSON results are stored in a Docker-managed SQLite volume for 30 days. Execution scheduling is still process-local (not a distributed durable queue), and an interrupted job is marked failed after restart rather than automatically resumed. Complete protocol ownership attribution, full dependency graph, Aderyn/Mythril, protocol-specific fork reproduction, audit logs, multi-user tenancy and signed reports are not yet production-enabled. Live-chain access remains read-only; no wallet signing, transaction submission or fund movement.
 
 ## Usage and security
 
