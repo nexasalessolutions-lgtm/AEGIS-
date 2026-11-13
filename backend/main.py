@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 from contextlib import contextmanager
 import json
@@ -501,8 +502,23 @@ async def protocol_contract_candidates(slug: str):
         key=lambda x: (0 if x["confidence"] == "medium" else 1, x["sourcePath"], x["sourceLine"]),
     )[:40]
 
-    # Verify candidates against chain bytecode. Unknown-chain candidates are checked against
-    # the protocol's advertised EVM chains, with bounded concurrency and a hard request cap.
+    # Pin each chain once so candidate bytecode and proxy-slot checks use a stable block.
+    candidate_chains = {
+        chain
+        for item in ranked
+        for chain in ([item["chain"]] if item.get("chain") else supported[:3])
+        if chain in CHAIN_IDS
+    }
+    async def read_chain_head(chain_key: str):
+        try:
+            raw = await rpc_call(chain_key, "eth_blockNumber", [])
+            return chain_key, int(raw, 16)
+        except Exception:
+            return chain_key, None
+    chain_heads = await asyncio.gather(*(read_chain_head(chain) for chain in sorted(candidate_chains)))
+    chain_blocks = dict(chain_heads)
+
+    # Verify candidates against bytecode at the pinned per-chain block, with bounded concurrency.
     semaphore = asyncio.Semaphore(12)
     checks = 0
     async def verify_candidate(candidate: dict[str, Any]):
@@ -517,11 +533,14 @@ async def protocol_contract_candidates(slug: str):
                 if checks > 60:
                     return found
                 try:
-                    code = await rpc_call(chain_key, "eth_getCode", [candidate["address"], "latest"])
+                    block_number = chain_blocks.get(chain_key)
+                    block_tag = hex(block_number) if block_number is not None else "latest"
+                    code = await rpc_call(chain_key, "eth_getCode", [candidate["address"], block_tag])
                     if code and code != "0x":
                         found.append({
                             **candidate,
                             "chain": chain_key,
+                            "blockNumber": block_number,
                             "hasCode": True,
                             "bytecodeBytes": max(0, (len(code) - 2) // 2),
                             "attribution": "adapter_source_candidate_code_verified",
@@ -537,19 +556,21 @@ async def protocol_contract_candidates(slug: str):
     async def resolve_proxy(candidate: dict[str, Any]):
         async with semaphore:
             try:
-                word = await rpc_call(candidate["chain"], "eth_getStorageAt", [candidate["address"], EIP1967["implementation"], "latest"])
+                block_number = candidate.get("blockNumber")
+                block_tag = hex(block_number) if block_number is not None else "latest"
+                word = await rpc_call(candidate["chain"], "eth_getStorageAt", [candidate["address"], EIP1967["implementation"], block_tag])
                 implementation = address_from_word(word)
                 proxy_kind = "eip1967_implementation"
                 if not implementation:
-                    beacon_word = await rpc_call(candidate["chain"], "eth_getStorageAt", [candidate["address"], EIP1967["beacon"], "latest"])
+                    beacon_word = await rpc_call(candidate["chain"], "eth_getStorageAt", [candidate["address"], EIP1967["beacon"], block_tag])
                     beacon = address_from_word(beacon_word)
                     if beacon:
-                        implementation_word = await rpc_call(candidate["chain"], "eth_call", [{"to": beacon, "data": "0x5c60da1b"}, "latest"])
+                        implementation_word = await rpc_call(candidate["chain"], "eth_call", [{"to": beacon, "data": "0x5c60da1b"}, block_tag])
                         implementation = address_from_word(implementation_word)
                         proxy_kind = "eip1967_beacon"
                 if not implementation or implementation.lower() == candidate["address"].lower():
                     return None
-                implementation_code = await rpc_call(candidate["chain"], "eth_getCode", [implementation, "latest"])
+                implementation_code = await rpc_call(candidate["chain"], "eth_getCode", [implementation, block_tag])
                 if not implementation_code or implementation_code == "0x":
                     return None
                 return {
@@ -613,13 +634,13 @@ async def protocol(slug: str):
         raise HTTPException(502, "Protocol detail upstream request failed") from exc
 
 @app.get("/api/contract/inspect")
-async def inspect_contract(chain: str, address: str):
+async def inspect_contract(chain: str, address: str, block_number: int | None = None):
     key = chain.lower()
     if key not in RPCS:
         raise HTTPException(400, f"Unsupported chain. Supported: {', '.join(RPCS)}")
     if not re.fullmatch(r"0x[a-fA-F0-9]{40}", address):
         raise HTTPException(400, "Invalid EVM address")
-    block_tag = await rpc_call(key, "eth_blockNumber", [])
+    block_tag = hex(block_number) if block_number is not None else await rpc_call(key, "eth_blockNumber", [])
     code, nonce, balance = await asyncio.gather(
         rpc_call(key, "eth_getCode", [address, block_tag]),
         rpc_call(key, "eth_getTransactionCount", [address, block_tag]),
@@ -736,11 +757,18 @@ async def protocol_live_snapshot(slug: str, limit: int = Query(12, ge=1, le=12))
         unique.append(item)
         if len(unique) >= limit:
             break
+    snapshot_chains = sorted({item["chain"] for item in unique})
+    async def snapshot_head(chain_key: str):
+        try:
+            return chain_key, int(await rpc_call(chain_key, "eth_blockNumber", []), 16)
+        except Exception:
+            return chain_key, None
+    snapshot_heads = dict(await asyncio.gather(*(snapshot_head(chain) for chain in snapshot_chains)))
     semaphore = asyncio.Semaphore(3)
     async def inspect_one(item: dict[str, Any]) -> dict[str, Any]:
         async with semaphore:
             try:
-                evidence = await inspect_contract(item["chain"], item["address"])
+                evidence = await inspect_contract(item["chain"], item["address"], snapshot_heads.get(item["chain"]))
                 return {
                     "role": item.get("role"),
                     "confidence": item.get("confidence"),
@@ -885,7 +913,14 @@ async def execute_single_contract_scan(slug: str, candidate: dict[str, Any], can
     if not safe_sources:
         raise HTTPException(422, "No verified Solidity source was available from Sourcify or the supported Blockscout explorer for the selected contract.")
 
-    archive_buffer = io.BytesIO()
+    source_manifest = [
+        {
+            "path": path,
+            "bytes": len(source.encode("utf-8")),
+            "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        }
+        for path, source in safe_sources
+    ]
     compiler_metadata = verified.get("compilerVersion")
     if not compiler_metadata and isinstance(verified.get("compiler"), dict):
         compiler_metadata = verified["compiler"].get("version")
@@ -923,8 +958,11 @@ async def execute_single_contract_scan(slug: str, candidate: dict[str, Any], can
             "sourceVerification": verified.get("match") or verified.get("runtimeMatch") or source_provenance,
             "abi": verified.get("abi") or verified.get("ABI"),
             "compilerVersion": verified.get("compilerVersion") or (verified.get("compiler") or {}).get("version"),
+            "blockNumber": candidate.get("blockNumber"),
         },
         "sourceFiles": len(safe_sources),
+        "sourceManifest": source_manifest,
+        "sourceBundleSha256": hashlib.sha256(json.dumps(source_manifest, sort_keys=True).encode("utf-8")).hexdigest(),
         "sourceProvenance": source_provenance,
         "analysis": analysis,
         "classification": "STATIC_ANALYSIS_SIGNAL",
