@@ -443,7 +443,8 @@ async def protocol_contract_candidates(slug: str):
         token_match = token_pattern.search(context)
         role = role_match.group(1).lower() if role_match else ("token_or_asset" if token_match else "adapter_reference")
         confidence = "medium" if role_match else ("low" if token_match else "low")
-        key = address.lower()
+        # The same EVM address can be deployed independently on several chains.
+        key = (chain or "unknown") + ":" + address.lower()
         current = collected.get(key)
         record = {
             "address": address,
