@@ -21,7 +21,7 @@ The repository includes a Codespaces development container. On first creation it
 - Read-only EVM inspection at a pinned block: bytecode, balance, nonce and EIP-1967 implementation/admin/beacon slots.
 - Sourcify verified source, ABI and proxy-resolution metadata lookup.
 - Protocol-to-contract discovery using DeFiLlama adapter source, public RPC bytecode verification and chain attribution.
-- Source retrieval from Sourcify, with supported Blockscout fallback, followed by Slither analysis in a private worker.
+- Source retrieval from Sourcify, with supported Blockscout fallback, followed by combined Slither and Aderyn analysis in a private worker.
 - ZIP upload to the Slither worker with archive validation, serialized execution and bounded runtime.
 - SQLite-backed scan job/result history with a 30-day retention policy and restart recovery for interrupted jobs.
 - Foundry pinned-block read-only baseline harness.
@@ -57,7 +57,7 @@ API health: `http://localhost:8000/health`.
 
 Address candidates are not ownership claims. Verified source is not proof of correctness. Slither output is a static-analysis signal, not a confirmed vulnerability. Fork simulations at a pinned block do not alone prove current live exploitability.
 
-Scan job records and complete JSON results are stored in a Docker-managed SQLite volume for 30 days. The SQLite-backed queue resumes queued or interrupted jobs after an API restart on a single API instance. It is not a distributed multi-instance queue. Complete protocol ownership attribution, full dependency graph, Aderyn/Mythril, protocol-specific fork reproduction, audit logs, multi-user tenancy and signed reports are not yet production-enabled. Live-chain access remains read-only; no wallet signing, transaction submission or fund movement.
+Scan job records and complete JSON results are stored in a Docker-managed SQLite volume for 30 days. The SQLite-backed queue resumes queued or interrupted jobs after an API restart on a single API instance. It is not a distributed multi-instance queue. Complete protocol ownership attribution, full dependency graph, Mythril, protocol-specific fork reproduction, audit logs, multi-user tenancy and signed reports are not yet production-enabled. Live-chain access remains read-only; no wallet signing, transaction submission or fund movement.
 
 ## Usage and security
 
