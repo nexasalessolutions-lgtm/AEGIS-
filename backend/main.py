@@ -206,7 +206,30 @@ async def security_headers(request, call_next):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "aegis-api", "mode": "read-only", "version": "0.2.0"}
+    try:
+        with database_connection() as connection:
+            connection.execute("SELECT 1").fetchone()
+        storage = "ok"
+    except sqlite3.Error:
+        storage = "degraded"
+    return {
+        "status": "ok" if storage == "ok" else "degraded",
+        "service": "aegis-api",
+        "mode": "read-only",
+        "version": "0.3.0",
+        "storage": storage,
+        "activeScanTasks": len(SCAN_TASKS),
+    }
+
+
+@app.get("/ready")
+async def readiness():
+    try:
+        with database_connection() as connection:
+            connection.execute("SELECT 1").fetchone()
+        return {"status": "ready", "database": "ok"}
+    except sqlite3.Error as exc:
+        raise HTTPException(503, "Persistent storage is unavailable") from exc
 
 @app.get("/api/chains")
 async def chains():
