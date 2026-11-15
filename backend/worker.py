@@ -83,7 +83,7 @@ async def health():
         "worker": "slither",
         "mode": "static-analysis-only",
         "slitherVersion": slither_version,
-        "aderynVersion": aderyn_version,
+        "aderynVersion": "not installed (upstream retired)",
         "solcVersion": solc_version,
     }
 
@@ -218,33 +218,13 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
                     finding["triageStatus"]="manual_review_required"
                     finding["triageHint"]="Solidity uses ^ as bitwise XOR. The detector cannot determine intent; verify the arithmetic expression before treating this as a vulnerability."
                 slither_findings.append(finding)
-            aderyn_payload = None
-            aderyn_error = None
-            aderyn_report_path = project / "aderyn-report.json"
-            try:
-                aderyn_proc = await asyncio.to_thread(
-                    subprocess.run,
-                    ["aderyn", "--src", ".", "--output", str(aderyn_report_path), "--skip-update-check", "."],
-                    cwd=project, capture_output=True, text=True,
-                    timeout=TIMEOUT, check=False, env=scan_env,
-                )
-                if aderyn_report_path.is_file():
-                    aderyn_payload = json.loads(aderyn_report_path.read_text(encoding="utf-8"))
-                else:
-                    aderyn_error = ((aderyn_proc.stderr or "") + "\n" + (aderyn_proc.stdout or "")).strip()[-4000:]
-                    if not aderyn_error:
-                        aderyn_error = "Aderyn completed without producing its JSON report."
-            except subprocess.TimeoutExpired:
-                aderyn_error = "Aderyn exceeded the 180 second analysis timeout."
-            except (OSError, ValueError, json.JSONDecodeError) as exc:
-                aderyn_error = str(exc)[:2000]
-            aderyn_findings = normalize_aderyn_findings(aderyn_payload) if aderyn_payload else []
-            findings = slither_findings + aderyn_findings
-            aderyn_issue_count = (aderyn_payload or {}).get("issue_count") or {}
-            partial = aderyn_error is not None
-            return {
+            aderyn_error = "Aderyn is retired upstream and has no supported installation path."
+            aderyn_findings = []
+            findings = slither_findings
+            aderyn_issue_count = {}
+                        return {
                 "engine": "Slither",
-                "status": "completed_with_partial_engines" if partial else ("completed" if proc.returncode in (0,1) else "completed_with_errors"),
+                "status": "completed" if proc.returncode in (0,1) else "completed_with_errors",
                 "exitCode": proc.returncode,
                 "compilerVersion": compiler_version,
                 "detectedPragmas": pragmas,
@@ -256,7 +236,7 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
                 "aderynIssueCount": aderyn_issue_count,
                 "aderynError": aderyn_error,
                 "findings": findings,
-                "engines": {"slither": {"status": "completed", "findingCount": len(slither_findings)}, "aderyn": {"status": "unavailable" if partial else "completed", "findingCount": len(aderyn_findings), "error": aderyn_error}},
+                "engines": {"slither": {"status": "completed", "findingCount": len(slither_findings)}, "aderyn": {"status": "not_installed", "findingCount": len(aderyn_findings), "error": aderyn_error}},
                 "stderr": proc.stderr[-8000:],
                 "classification": "STATIC_ANALYSIS_SIGNAL",
                 "disclaimer": "Static-analysis output is a review signal, not a confirmed vulnerability or proof of live exploitability."
