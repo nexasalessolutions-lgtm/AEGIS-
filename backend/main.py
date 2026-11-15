@@ -526,12 +526,21 @@ async def protocol_contract_candidates(slug: str):
         if source_path.startswith("projects/") and not role_pattern.search(context):
             return
         chain = None
-        aliases = chain_pattern.findall(context)
+        # Prefer the exact declaration line over nearby context so an
+        # adjacent chain's address cannot steal this candidate's attribution.
+        aliases = chain_pattern.findall(line_text or "")
         for alias in reversed(aliases):
             mapped = chain_aliases.get(alias.lower())
             if mapped in supported:
                 chain = mapped
                 break
+        if chain is None:
+            aliases = chain_pattern.findall(context)
+            for alias in reversed(aliases):
+                mapped = chain_aliases.get(alias.lower())
+                if mapped in supported:
+                    chain = mapped
+                    break
         # Adapter constants frequently encode a chain as a camelCase suffix
         # (for example routerEthereum or vaultPolygon), which word-boundary
         # matching alone does not recognize.
