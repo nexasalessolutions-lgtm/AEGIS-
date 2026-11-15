@@ -1069,7 +1069,7 @@ async def execute_single_contract_scan(slug: str, candidate: dict[str, Any], can
     }
 
 
-async def execute_protocol_scan(slug: str, progress_callback=None, max_targets: int = 50) -> dict[str, Any]:
+async def execute_protocol_scan(slug: str, progress_callback=None) -> dict[str, Any]:
     """Run bounded static analysis across the discovered on-chain contract set."""
     if progress_callback:
         progress_callback({"stage": "contract_discovery", "completed": 0, "total": 0})
@@ -1088,7 +1088,7 @@ async def execute_protocol_scan(slug: str, progress_callback=None, max_targets: 
             continue
         seen.add(key)
         unique.append(item)
-        if len(unique) >= max_targets:
+        if len(unique) >= 50:
             break
     if not unique:
         raise HTTPException(422, "No supported, on-chain-verified contract targets were available.")
@@ -1142,7 +1142,7 @@ async def resume_queued_scan_jobs():
         task.add_done_callback(SCAN_TASKS.discard)
 
 
-async def run_protocol_scan_job(job_id: str, slug: str, max_targets: int = 50):
+async def run_protocol_scan_job(job_id: str, slug: str):
     job = SCAN_JOBS[job_id]
     job["status"] = "running"
     job["updatedAt"] = time.time()
@@ -1152,7 +1152,7 @@ async def run_protocol_scan_job(job_id: str, slug: str, max_targets: int = 50):
         job["updatedAt"] = time.time()
         persist_scan_job(job)
     try:
-        result = await execute_protocol_scan(slug, progress_callback=update_progress, max_targets=max_targets)
+        result = await execute_protocol_scan(slug, progress_callback=update_progress)
         job.update({"status": "completed", "result": result, "updatedAt": time.time()})
     except HTTPException as exc:
         job.update({"status": "failed", "error": str(exc.detail), "statusCode": exc.status_code, "updatedAt": time.time()})
@@ -1190,30 +1190,6 @@ async def auto_scan_protocol(slug: str, request: Request, authorization: str | N
     SCAN_TASKS.add(task)
     task.add_done_callback(SCAN_TASKS.discard)
     return {"jobId": job_id, "status": "queued", "pollUrl": f"/api/scans/jobs/{job_id}"}
-
-
-@app.get("/api/internal/e2e-smoke/{slug}", status_code=202)
-async def internal_e2e_smoke(slug: str, request: Request, authorization: str | None = Header(default=None)):
-    """Temporary one-target E2E hook; remove after validating the isolated scan pipeline."""
-    scan_token = os.getenv("AEGIS_SCAN_TOKEN", "")
-    if not scan_token or authorization != "Bearer " + scan_token:
-        raise HTTPException(401, "Unauthorized")
-    enforce_scan_rate_limit(request)
-    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
-        raise HTTPException(400, "Invalid protocol slug")
-    if len(SCAN_TASKS) >= 2:
-        raise HTTPException(429, "The static-analysis worker is busy.")
-    now = time.time()
-    job_id = str(uuid.uuid4())
-    SCAN_JOBS[job_id] = {
-        "jobId": job_id, "protocolSlug": slug, "status": "queued",
-        "createdAt": now, "updatedAt": now, "e2eSmoke": True, "maxTargets": 1,
-    }
-    persist_scan_job(SCAN_JOBS[job_id])
-    task = asyncio.create_task(run_protocol_scan_job(job_id, slug, max_targets=1))
-    SCAN_TASKS.add(task)
-    task.add_done_callback(SCAN_TASKS.discard)
-    return {"jobId": job_id, "status": "queued", "pollUrl": f"/api/scans/jobs/{job_id}", "testMode": "one target only"}
 
 
 @app.get("/api/scans/jobs/{job_id}")
