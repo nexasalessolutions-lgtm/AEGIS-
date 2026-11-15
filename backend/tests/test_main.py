@@ -317,3 +317,78 @@ def test_protocol_live_tvl_classification_is_safe_for_untrusted_values():
     assert main.has_positive_tvl(0) is False
     assert main.has_positive_tvl("not-a-number") is False
     assert main.has_positive_tvl(None) is False
+
+
+def test_minimal_proxy_implementation_parser_accepts_standard_eip1167_runtime():
+    import main
+
+    implementation = "1234567890abcdef1234567890abcdef12345678"
+    runtime = "0x363d3d373d3d3d363d73" + implementation + "5af43d82803e903d91602b57fd5bf3"
+    assert main.minimal_proxy_implementation(runtime) == "0x" + implementation
+    assert main.minimal_proxy_implementation("0x60006000") is None
+
+
+def test_contract_inspection_resolves_minimal_proxy_implementation_at_pinned_block(monkeypatch):
+    import asyncio
+    import main
+
+    target = "0x" + "1" * 40
+    implementation = "0x1234567890abcdef1234567890abcdef12345678"
+    runtime = "0x363d3d373d3d3d363d73" + implementation[2:] + "5af43d82803e903d91602b57fd5bf3"
+
+    async def fake_rpc(chain, method, params):
+        if method == "eth_blockNumber": return "0x64"
+        if method == "eth_getCode":
+            return runtime if params[0].lower() == target.lower() else "0x60006000"
+        if method == "eth_getTransactionCount": return "0x2"
+        if method == "eth_getBalance": return "0x0"
+        if method == "eth_getStorageAt": return "0x" + "0" * 64
+        raise AssertionError(method)
+
+    async def fake_get_json(*args, **kwargs):
+        raise main.httpx.ConnectError("Sourcify unavailable")
+
+    monkeypatch.setattr(main, "rpc_call", fake_rpc)
+    monkeypatch.setattr(main, "get_json", fake_get_json)
+    result = asyncio.run(main.inspect_contract("ethereum", target, 100))
+    assert result["proxy"]["minimalProxyImplementation"].lower() == implementation.lower()
+    assert result["proxy"]["resolvedImplementation"].lower() == implementation.lower()
+    assert result["proxy"]["resolutionStandard"] == "eip1167_minimal_proxy"
+    assert result["proxy"]["implementationHasCode"] is True
+    assert result["proxy"]["implementationBytecodeBytes"] == 2
+
+
+def test_contract_inspection_resolves_beacon_implementation_at_pinned_block(monkeypatch):
+    import asyncio
+    import main
+
+    target = "0x" + "1" * 40
+    beacon = "0x" + "2" * 40
+    implementation = "0x" + "3" * 40
+    beacon_word = "0x" + "0" * 24 + beacon[2:]
+
+    async def fake_rpc(chain, method, params):
+        if method == "eth_blockNumber": return "0x64"
+        if method == "eth_getCode":
+            return "0x60006000" if params[0].lower() == target.lower() else "0x6000"
+        if method == "eth_getTransactionCount": return "0x2"
+        if method == "eth_getBalance": return "0x0"
+        if method == "eth_getStorageAt":
+            return beacon_word if params[1] == main.EIP1967["beacon"] else "0x" + "0" * 64
+        if method == "eth_call":
+            assert params[0]["to"].lower() == beacon.lower()
+            assert params[0]["data"] == "0x5c60da1b"
+            assert params[1] == "0x64"
+            return "0x" + "0" * 24 + implementation[2:]
+        raise AssertionError(method)
+
+    async def fake_get_json(*args, **kwargs):
+        raise main.httpx.ConnectError("Sourcify unavailable")
+
+    monkeypatch.setattr(main, "rpc_call", fake_rpc)
+    monkeypatch.setattr(main, "get_json", fake_get_json)
+    result = asyncio.run(main.inspect_contract("ethereum", target, 100))
+    assert result["proxy"]["beaconImplementation"].lower() == implementation.lower()
+    assert result["proxy"]["resolvedImplementation"].lower() == implementation.lower()
+    assert result["proxy"]["resolutionStandard"] == "eip1967_beacon"
+    assert result["proxy"]["implementationHasCode"] is True
