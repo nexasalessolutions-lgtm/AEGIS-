@@ -597,7 +597,7 @@ async def protocol_contract_candidates(slug: str):
     candidate_chains = {
         chain
         for item in ranked
-        for chain in ([item["chain"]] if item.get("chain") else supported[:3])
+        for chain in ([item["chain"]] if item.get("chain") else (supported if len(supported) == 1 else []))
         if chain in CHAIN_IDS
     }
     async def read_chain_head(chain_key: str):
@@ -614,7 +614,7 @@ async def protocol_contract_candidates(slug: str):
     checks = 0
     async def verify_candidate(candidate: dict[str, Any]):
         nonlocal checks
-        target_chains = [candidate["chain"]] if candidate.get("chain") else supported[:3]
+        target_chains = [candidate["chain"]] if candidate.get("chain") else (supported if len(supported) == 1 else [])
         if not target_chains:
             return []
         found = []
