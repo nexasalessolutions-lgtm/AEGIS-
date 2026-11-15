@@ -5,6 +5,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 RUN useradd --create-home --uid 10001 app && mkdir -p /data && chown -R app:app /app /data
-USER 10001
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Railway volumes are mounted after image creation; fix mount ownership before dropping privileges.
+CMD ["sh", "-c", "mkdir -p /data && chown -R app:app /data && exec su -s /bin/sh app -c 'uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}'"]
