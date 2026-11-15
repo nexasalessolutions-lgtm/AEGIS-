@@ -254,6 +254,16 @@ def address_from_word(word: str | None) -> str | None:
     address = "0x" + word[-40:]
     return None if address.lower() == "0x" + "0" * 40 else address
 
+def minimal_proxy_implementation(bytecode: str | None) -> str | None:
+    """Resolve the standard EIP-1167 runtime bytecode form without executing it."""
+    if not isinstance(bytecode, str):
+        return None
+    match = re.search(
+        r"363d3d373d3d3d363d73([0-9a-fA-F]{40})5af43d82803e903d91602b57fd5bf3",
+        bytecode.removeprefix("0x"),
+    )
+    return "0x" + match.group(1) if match else None
+
 @app.middleware("http")
 async def security_headers(request, call_next):
     response = await call_next(request)
@@ -752,9 +762,22 @@ async def inspect_contract(chain: str, address: str, block_number: int | None = 
     implementation = address_from_word(implementation_word)
     admin = address_from_word(admin_word)
     beacon = address_from_word(beacon_word)
+    minimal_proxy_implementation_address = minimal_proxy_implementation(code)
+    beacon_implementation = None
+    if beacon:
+        try:
+            beacon_result = await rpc_call(
+                key, "eth_call", [{"to": beacon, "data": "0x5c60da1b"}, block_tag]
+            )
+            beacon_implementation = address_from_word(beacon_result)
+        except HTTPException:
+            beacon_implementation = None
+    resolved_implementation = (
+        implementation or minimal_proxy_implementation_address or beacon_implementation
+    )
     implementation_code = None
-    if implementation:
-        implementation_code = await rpc_call(key, "eth_getCode", [implementation, block_tag])
+    if resolved_implementation:
+        implementation_code = await rpc_call(key, "eth_getCode", [resolved_implementation, block_tag])
     verified_source = None
     verification = "not_found"
     try:
@@ -819,7 +842,17 @@ async def inspect_contract(chain: str, address: str, block_number: int | None = 
             "eip1967Implementation": implementation,
             "eip1967Admin": admin,
             "eip1967Beacon": beacon,
-            "implementationHasCode": implementation_code is not None and implementation_code != "0x" if implementation else None,
+            "minimalProxyImplementation": minimal_proxy_implementation_address,
+            "beaconImplementation": beacon_implementation,
+            "resolvedImplementation": resolved_implementation,
+            "resolutionStandard": (
+                "eip1967" if implementation else
+                "eip1167_minimal_proxy" if minimal_proxy_implementation_address else
+                "eip1967_beacon" if beacon_implementation else
+                "unresolved"
+            ),
+            "implementationHasCode": implementation_code is not None and implementation_code != "0x" if resolved_implementation else None,
+            "implementationBytecodeBytes": max(0, (len(implementation_code) - 2) // 2) if implementation_code and implementation_code != "0x" else 0,
             "sourcifyResolution": (verified_source or {}).get("proxyResolution"),
         },
         "verifiedSource": verified_source, "verification": verification,
@@ -828,7 +861,7 @@ async def inspect_contract(chain: str, address: str, block_number: int | None = 
             "blockTag": block_tag, "source": "public RPC",
         },
         "limitations": [
-            "EIP-1967 slots are checked; beacon resolution, minimal proxies, diamond facets and non-standard proxy patterns may need additional handling.",
+            "EIP-1967 implementation/admin/beacon slots, standard EIP-1167 minimal proxies, and the beacon implementation() view are checked. Diamond facets and non-standard proxy patterns may need additional handling.",
             "Non-empty bytecode and source verification do not establish protocol ownership or prove a vulnerability.",
         ],
     }
