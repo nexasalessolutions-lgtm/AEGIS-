@@ -222,7 +222,7 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
             aderyn_findings = []
             findings = slither_findings
             aderyn_issue_count = {}
-                        return {
+            return {
                 "engine": "Slither",
                 "status": "completed" if proc.returncode in (0,1) else "completed_with_errors",
                 "exitCode": proc.returncode,
