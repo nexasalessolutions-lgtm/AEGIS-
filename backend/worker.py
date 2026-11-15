@@ -214,7 +214,11 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
             aderyn_issue_count = (aderyn_payload or {}).get("issue_count") or {}
             partial = aderyn_error is not None
             return {
-                "engine": "Slither + Aderyn",
+                "engine": "Slither",
+                "engines": {
+                    "slither": {"status": "completed", "findingCount": len(slither_findings)},
+                    "aderyn": {"status": "unavailable" if aderyn_error else "completed", "findingCount": len(aderyn_findings), "reason": aderyn_error},
+                },
                 "status": "completed_with_partial_engines" if partial else ("completed" if proc.returncode in (0,1) else "completed_with_errors"),
                 "exitCode": proc.returncode,
                 "compilerVersion": compiler_version,
