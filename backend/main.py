@@ -552,6 +552,10 @@ async def protocol_contract_candidates(slug: str):
             current["chain"] = chain
 
     for path, source in adapter_sources:
+        # Generic shared helpers contain addresses for unrelated protocols and assets.
+        # Only scan this protocol's own adapter directory for address declarations.
+        if not path.startswith(f"projects/{slug}/"):
+            continue
         lines = source.splitlines()
         raw_url = "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/" + path
         for index, line in enumerate(lines):
