@@ -188,7 +188,36 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
                     + ". Compiler diagnostics: " + diagnostics,
                 )
             detectors=payload.get("results",{}).get("detectors",[])
-            slither_findings=[{"id":f"SLITHER-{i+1:04d}","check":x.get("check"),"impact":x.get("impact"),"confidence":x.get("confidence"),"description":x.get("description"),"firstElement":(x.get("elements") or [{}])[0].get("source_mapping",{}).get("filename_relative"),"engine":"Slither"} for i,x in enumerate(detectors)]
+            slither_findings=[]
+            seen_findings=set()
+            for item in detectors:
+                elements=item.get("elements") or [{}]
+                first=elements[0]
+                source_mapping=first.get("source_mapping",{})
+                location=source_mapping.get("filename_relative")
+                lines=source_mapping.get("lines") or []
+                description=item.get("description") or ""
+                check=item.get("check") or "unknown-detector"
+                dedupe_key=(check,item.get("impact"),item.get("confidence"),location,description)
+                if dedupe_key in seen_findings:
+                    continue
+                seen_findings.add(dedupe_key)
+                finding={
+                    "id":f"SLITHER-{len(slither_findings)+1:04d}",
+                    "check":check,
+                    "impact":item.get("impact"),
+                    "confidence":item.get("confidence"),
+                    "description":description,
+                    "firstElement":location,
+                    "firstLine":lines[0] if lines else None,
+                    "contract":first.get("type_specific_fields",{}).get("parent",{}).get("name") or first.get("name"),
+                    "engine":"Slither",
+                    "triageStatus":"unreviewed",
+                }
+                if check=="incorrect-exp":
+                    finding["triageStatus"]="manual_review_required"
+                    finding["triageHint"]="Solidity uses ^ as bitwise XOR. The detector cannot determine intent; verify the arithmetic expression before treating this as a vulnerability."
+                slither_findings.append(finding)
             aderyn_payload = None
             aderyn_error = None
             aderyn_report_path = project / "aderyn-report.json"
@@ -215,10 +244,6 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
             partial = aderyn_error is not None
             return {
                 "engine": "Slither",
-                "engines": {
-                    "slither": {"status": "completed", "findingCount": len(slither_findings)},
-                    "aderyn": {"status": "unavailable" if aderyn_error else "completed", "findingCount": len(aderyn_findings), "reason": aderyn_error},
-                },
                 "status": "completed_with_partial_engines" if partial else ("completed" if proc.returncode in (0,1) else "completed_with_errors"),
                 "exitCode": proc.returncode,
                 "compilerVersion": compiler_version,
@@ -231,7 +256,7 @@ async def scan_slither(file: UploadFile=File(...), authorization: str|None=Heade
                 "aderynIssueCount": aderyn_issue_count,
                 "aderynError": aderyn_error,
                 "findings": findings,
-                "engines": {"slither": {"status": "completed", "findingCount": len(slither_findings)}, "aderyn": {"status": "partial" if partial else "completed", "findingCount": len(aderyn_findings), "error": aderyn_error}},
+                "engines": {"slither": {"status": "completed", "findingCount": len(slither_findings)}, "aderyn": {"status": "unavailable" if partial else "completed", "findingCount": len(aderyn_findings), "error": aderyn_error}},
                 "stderr": proc.stderr[-8000:],
                 "classification": "STATIC_ANALYSIS_SIGNAL",
                 "disclaimer": "Static-analysis output is a review signal, not a confirmed vulnerability or proof of live exploitability."
