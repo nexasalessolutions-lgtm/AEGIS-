@@ -355,7 +355,7 @@ def test_contract_inspection_resolves_minimal_proxy_implementation_at_pinned_blo
     assert result["proxy"]["resolvedImplementation"].lower() == implementation.lower()
     assert result["proxy"]["resolutionStandard"] == "eip1167_minimal_proxy"
     assert result["proxy"]["implementationHasCode"] is True
-    assert result["proxy"]["implementationBytecodeBytes"] == 2
+    assert result["proxy"]["implementationBytecodeBytes"] == 4
 
 
 def test_contract_inspection_resolves_beacon_implementation_at_pinned_block(monkeypatch):
