@@ -538,7 +538,7 @@ async def protocol_contract_candidates(slug: str):
         if chain is None:
             for alias, mapped in chain_aliases.items():
                 if mapped in supported and re.search(
-                    rf"(?<=[a-z0-9]){re.escape(alias)}\\b", context, re.I
+                    rf"(?<=[a-z0-9]){re.escape(alias)}\b", context, re.I
                 ):
                     chain = mapped
                     break
