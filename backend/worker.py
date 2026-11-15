@@ -73,10 +73,10 @@ async def health():
     slither_version = await asyncio.to_thread(version, ["slither", "--version"])
     solc_version = await asyncio.to_thread(version, ["solc", "--version"])
     aderyn_version = await asyncio.to_thread(version, ["aderyn", "--version"])
+    # Aderyn is an optional secondary engine; a missing release binary must not disable Slither.
     healthy = (
         not slither_version.startswith("unavailable:")
         and not solc_version.startswith("unavailable:")
-        and not aderyn_version.startswith("unavailable:")
     )
     return {
         "status": "ok" if healthy else "degraded",
