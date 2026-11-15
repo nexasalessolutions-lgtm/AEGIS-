@@ -189,14 +189,46 @@ async def get_json(url: str, *, params: dict[str, str] | None = None, cache_key:
         if expires > now:
             return value
     async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "AEGIS-DeFi-Intelligence/0.2 (+https://github.com/nexasalessolutions-lgtm/AEGIS-)"}) as client:
-        response = await client.get(url, params=params)
-        response.raise_for_status()
-        value = response.json()
+        last_error = None
+        for attempt in range(3):
+            try:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                value = response.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code not in {429, 500, 502, 503, 504} or attempt == 2:
+                    raise
+                await asyncio.sleep(0.4 * (2 ** attempt))
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(0.4 * (2 ** attempt))
+        else:
+            raise last_error or httpx.HTTPError("Upstream request failed")
     if cache_key and ttl:
         if len(CACHE) > 250:
             CACHE.pop(next(iter(CACHE)))
         CACHE[cache_key] = (now + ttl, value)
     return value
+
+async def get_protocol_record(slug: str) -> tuple[dict[str, Any], str]:
+    try:
+        value = await get_json(LLAMA + "/protocol/" + slug, cache_key="protocol:" + slug, ttl=180)
+        return value, "protocol_detail"
+    except httpx.HTTPError:
+        # DeFiLlama's detail endpoint can be rate-limited while its registry remains available.
+        rows = await get_json(LLAMA + "/protocols", cache_key="protocols", ttl=300)
+        match = next((item for item in rows if str(item.get("slug", "")).lower() == slug.lower()), None)
+        if not match:
+            raise
+        fallback = dict(match)
+        fallback["currentChainTvls"] = match.get("chainTvls") or {}
+        fallback["_detailUnavailable"] = True
+        return fallback, "protocol_registry_fallback"
+
 
 async def rpc_call(chain: str, method: str, params: list[Any]) -> Any:
     last_error = "No RPC endpoints configured"
@@ -329,9 +361,9 @@ async def protocol_contract_candidates(slug: str):
     if cached and cached[0] > time.monotonic():
         return cached[1]
     try:
-        protocol = await get_json(LLAMA + "/protocol/" + slug, cache_key="protocol:" + slug, ttl=300)
+        protocol, metadata_source = await get_protocol_record(slug)
     except httpx.HTTPError as exc:
-        raise HTTPException(502, "Protocol detail upstream request failed") from exc
+        raise HTTPException(502, "Protocol detail and registry upstream requests failed") from exc
 
     chain_aliases = {
         "ethereum":"ethereum", "eth":"ethereum", "arbitrum":"arbitrum",
@@ -661,6 +693,7 @@ async def protocol_contract_candidates(slug: str):
         "blockHeadChecks": len(chain_blocks),
         "rpcChecks": checks,
         "discoveryStatus": "verified_candidates_found" if verified else ("adapter_source_found_no_live_code" if adapter_sources else "adapter_source_not_found"),
+        "metadataMode": metadata_source,
         "sources": [
             {"name": "DeFiLlama adapter repository", "url": "https://github.com/DefiLlama/DefiLlama-Adapters/tree/main/projects/" + slug},
             {"name": "DeFiLlama protocol metadata", "url": "https://api.llama.fi/protocol/" + slug},
@@ -676,12 +709,12 @@ async def protocol(slug: str):
     if not re.fullmatch(r"[a-zA-Z0-9._-]{1,120}", slug):
         raise HTTPException(400, "Invalid protocol slug")
     try:
-        data = await get_json(LLAMA + "/protocol/" + slug, cache_key="protocol:" + slug, ttl=120)
-        return {"protocol": data, "source": "DeFiLlama"}
+        data, source = await get_protocol_record(slug)
+        return {"protocol": data, "source": "DeFiLlama", "metadataMode": source}
     except httpx.HTTPStatusError as exc:
         raise HTTPException(exc.response.status_code, "Protocol not found upstream") from exc
     except httpx.HTTPError as exc:
-        raise HTTPException(502, "Protocol detail upstream request failed") from exc
+        raise HTTPException(502, "Protocol detail and registry upstream requests failed") from exc
 
 @app.get("/api/contract/inspect")
 async def inspect_contract(chain: str, address: str, block_number: int | None = None):
