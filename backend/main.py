@@ -1021,6 +1021,7 @@ async def execute_single_contract_scan(slug: str, candidate: dict[str, Any], can
     compiler_metadata = verified.get("compilerVersion")
     if not compiler_metadata and isinstance(verified.get("compiler"), dict):
         compiler_metadata = verified["compiler"].get("version")
+    archive_buffer = io.BytesIO()
     with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path, source in safe_sources:
             archive.writestr(path, source)
