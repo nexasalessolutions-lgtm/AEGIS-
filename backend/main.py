@@ -335,7 +335,7 @@ async def protocol_contract_candidates(slug: str):
 
     chain_aliases = {
         "ethereum":"ethereum", "eth":"ethereum", "arbitrum":"arbitrum",
-        "arbitrum one":"arbitrum", "optimism":"optimism", "op":"optimism",
+        "arbitrum one":"arbitrum", "optimism":"optimism", "op":"optimism", "op mainnet":"optimism",
         "base":"base", "polygon":"polygon", "matic":"polygon", "bsc":"bsc",
         "bnb chain":"bsc", "avalanche":"avalanche", "avax":"avalanche",
         "gnosis":"gnosis", "xdai":"gnosis", "celo":"celo", "fantom":"fantom",
@@ -348,6 +348,13 @@ async def protocol_contract_candidates(slug: str):
         key = chain_aliases.get(str(name).strip().lower())
         if key and key in RPCS and key not in supported:
             supported.append(key)
+    # Some DeFiLlama protocol detail records omit chains but expose live chain TVL maps.
+    if not supported:
+        chain_names = list((protocol.get("currentChainTvls") or {}).keys()) + list((protocol.get("chainTvls") or {}).keys())
+        for name in chain_names:
+            key = chain_aliases.get(str(name).strip().lower())
+            if key and key in RPCS and key not in supported:
+                supported.append(key)
 
     adapter_sources: list[tuple[str, str]] = []
     adapter_warnings: list[str] = []
@@ -365,16 +372,28 @@ async def protocol_contract_candidates(slug: str):
             if direct.status_code == 200:
                 direct_found = True
                 adapter_sources.append((f"projects/{slug}/index.js", direct.text[:600_000]))
-                imports = re.findall(r"""(?:require\s*\(|from\s*)['"]\./([^'"]+)['"]""", direct.text)
+                imports = re.findall(r"""(?:require\s*\(|from\s*)['"]((?:\.\.?/)[^'"]+)['"]""", direct.text)
                 async def fetch_import(relative: str):
-                    if relative.startswith(".") or ".." in PurePosixPath(relative).parts:
+                    # Resolve ./ and ../ imports relative to projects/<slug>, without allowing repo-root escape.
+                    parts = ["projects", slug]
+                    for part in PurePosixPath(relative).parts:
+                        if part in ("", "."):
+                            continue
+                        if part == "..":
+                            if len(parts) <= 1:
+                                return None
+                            parts.pop()
+                        else:
+                            parts.append(part)
+                    if not parts or parts[0] != "projects":
                         return None
-                    candidates = [relative] if PurePosixPath(relative).suffix else [relative + ".js", relative + "/index.js"]
+                    resolved = "/".join(parts)
+                    candidates = [resolved] if PurePosixPath(resolved).suffix else [resolved + ".js", resolved + ".json", resolved + "/index.js"]
                     for candidate_path in candidates:
                         try:
-                            response = await client.get(raw_root + candidate_path)
+                            response = await client.get("https://raw.githubusercontent.com/DefiLlama/DefiLlama-Adapters/main/" + candidate_path)
                             if response.status_code == 200:
-                                return (f"projects/{slug}/{candidate_path}", response.text[:600_000])
+                                return (candidate_path, response.text[:600_000])
                         except httpx.HTTPError:
                             continue
                     return None
