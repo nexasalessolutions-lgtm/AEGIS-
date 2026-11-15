@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-const allowed = /^(health|ready|api\/(protocols|chains|capabilities|worker\/health|internal\/e2e-smoke\/[a-zA-Z0-9._-]+|protocol\/[a-zA-Z0-9._-]+(?:\/(?:contracts|state|snapshot))?|contract\/inspect|scans\/protocol\/[a-zA-Z0-9._-]+|scans\/jobs(?:\/[a-f0-9-]+)?))$/;
+const allowed = /^(health|ready|api\/(protocols|chains|capabilities|worker\/health|protocol\/[a-zA-Z0-9._-]+(?:\/(?:contracts|state|snapshot))?|contract\/inspect|scans\/protocol\/[a-zA-Z0-9._-]+|scans\/jobs(?:\/[a-f0-9-]+)?))$/;
 async function forward(req:NextRequest, ctx:{params:Promise<{path:string[]}>}) {
  const {path}=await ctx.params; const joined=path.join("/");
  if(!allowed.test(joined)) return NextResponse.json({detail:"Route not allowed"},{status:404});
