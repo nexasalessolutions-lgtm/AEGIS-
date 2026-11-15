@@ -307,7 +307,7 @@ async def capabilities():
         "notImplemented": [
             "SQLite-backed scan queue resumes jobs after a single-instance API restart; distributed multi-instance scheduling is not implemented",
             "Full contract ownership attribution and all proxy standards",
-            "Aderyn secondary engine (official 0.6.8 release asset currently returns HTTP 404)",
+            "Aderyn secondary engine (upstream project is retired; no supported installation path)",
             "Mythril execution",
             "Foundry/Anvil protocol-specific fork reproduction",
             "Multi-user identity, tenancy, audit log and report signing",
