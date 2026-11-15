@@ -514,7 +514,7 @@ async def protocol_contract_candidates(slug: str):
     address_pattern = re.compile(r"0x[a-fA-F0-9]{40}")
     role_pattern = re.compile(r"(factory|router|pool|vault|comptroller|controller|registry|proxy|manager|lendingPool|market|staking|gauge|bridge|oracle|treasury|owner|multisig|addressProvider|implementation|beacon|diamond|escrow|masterChef|chef|distributor|governor|timelock|strategy|wrapper)", re.I)
     token_pattern = re.compile(r"(token|asset|reward|underlying|symbol|blacklist|stablecoin|coreAssets|weth|usdc|usdt|dai)", re.I)
-    chain_pattern = re.compile(r"\b(ethereum|arbitrum|optimism|polygon|base|bsc|avalanche|avax|gnosis|xdai|celo|fantom|sonic|linea|scroll|zksync|mantle|blast|mode|opbnb|unichain|berachain|zora)\b", re.I)
+    chain_pattern = re.compile(r"(ethereum|arbitrum|optimism|polygon|base|bsc|avalanche|avax|gnosis|xdai|celo|fantom|sonic|linea|scroll|zksync|mantle|blast|mode|opbnb|unichain|berachain|zora)", re.I)
     collected: dict[str, dict[str, Any]] = {}
 
     def add_candidate(address: str, source_path: str, source_line: int, context: str, source_url: str, line_text: str = ""):
