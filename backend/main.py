@@ -372,7 +372,7 @@ async def protocol_contract_candidates(slug: str):
         "bnb chain":"bsc", "avalanche":"avalanche", "avax":"avalanche",
         "gnosis":"gnosis", "xdai":"gnosis", "celo":"celo", "fantom":"fantom",
         "sonic":"sonic", "linea":"linea", "scroll":"scroll", "zksync era":"zksync",
-        "zksync":"zksync", "mantle":"mantle", "blast":"blast", "mode":"mode",
+        "zksync":"zksync", "era":"zksync", "mantle":"mantle", "blast":"blast", "mode":"mode",
         "opbnb":"opbnb", "unichain":"unichain", "berachain":"berachain", "zora":"zora",
     }
     supported = []
@@ -510,6 +510,11 @@ async def protocol_contract_candidates(slug: str):
     def add_candidate(address: str, source_path: str, source_line: int, context: str, source_url: str, line_text: str = ""):
         if address.lower() == "0x" + "0" * 40:
             return
+        # Avoid generic asset registries and token blacklist entries: they are not protocol infrastructure.
+        if source_path.lower().endswith("coreassets.json"):
+            return
+        if source_path.startswith("projects/") and not role_pattern.search(context):
+            return
         chain = None
         aliases = chain_pattern.findall(context)
         for alias in reversed(aliases):
@@ -550,6 +555,8 @@ async def protocol_contract_candidates(slug: str):
         lines = source.splitlines()
         raw_url = "https://github.com/DefiLlama/DefiLlama-Adapters/blob/main/" + path
         for index, line in enumerate(lines):
+            if line.lstrip().startswith("//"):
+                continue
             matches = list(address_pattern.finditer(line))
             if not matches:
                 continue
