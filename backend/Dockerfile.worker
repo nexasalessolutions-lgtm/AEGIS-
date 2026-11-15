@@ -1,8 +1,9 @@
 FROM python:3.12-slim
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl nodejs npm \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install --global @cyfrin/aderyn@0.6.8
+    && node --version && npm --version \
+    && npm install --global @cyfrin/aderyn \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
 RUN aderyn --version
 RUN pip install --no-cache-dir slither-analyzer==0.11.3 fastapi==0.161.0 "uvicorn[standard]==0.34.2" python-multipart==0.0.33 solc-select
 RUN useradd --create-home --uid 10001 worker
