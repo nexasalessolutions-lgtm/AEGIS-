@@ -532,6 +532,16 @@ async def protocol_contract_candidates(slug: str):
             if mapped in supported:
                 chain = mapped
                 break
+        # Adapter constants frequently encode a chain as a camelCase suffix
+        # (for example routerEthereum or vaultPolygon), which word-boundary
+        # matching alone does not recognize.
+        if chain is None:
+            for alias, mapped in chain_aliases.items():
+                if mapped in supported and re.search(
+                    rf"(?<=[a-z0-9]){re.escape(alias)}\\b", context, re.I
+                ):
+                    chain = mapped
+                    break
         if chain is None:
             # Explicit suffixes are common in adapter constant names (e.g. registryETH).
             if re.search(r"\b[A-Za-z0-9_]+ETH\b", context) and "ethereum" in supported:
